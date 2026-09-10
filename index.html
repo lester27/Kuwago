@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+  <meta name="description" content="Monitor student engagement during live Google Meet classes in near-real-time." />
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/states.css" />
+
+  <!-- Favicon (inline SVG data URI) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='6' fill='%234F46E5'/><circle cx='16' cy='16' r='11' fill='none' stroke='%234F46E5' stroke-width='2' opacity='0.4'/><circle cx='16' cy='16' r='15' fill='none' stroke='%234F46E5' stroke-width='1.5' opacity='0.2'/></svg>" />
+</head>
+<body>
+  <div class="backdrop">
+    <div class="shell app-loading">
+
+      <!-- ════════════════════════════════════════════════════
+           SIDEBAR
+           ════════════════════════════════════════════════════ -->
+      <aside class="sidebar">
+        <!-- Brand (Text Only, No Logo) -->
+        <div class="sidebar__header">
+          <span class="sidebar__brand">Dashboard</span>
+        </div>
+
+        <!-- Royal Blue Sidebar Panel -->
+        <div class="sidebar__panel">
+          <!-- Primary CTA: White Pill Button -->
+          <button class="btn btn--white sidebar__cta" id="btn-set-prompt">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            Set new prompt
+          </button>
+
+          <!-- Navigation -->
+          <nav class="sidebar__nav">
+            <a class="nav-item nav-item--active" id="nav-roster" role="button" tabindex="0">
+              <svg class="nav-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <span class="nav-item__label">Live roster</span>
+            </a>
+
+            <a class="nav-item" id="nav-unmatched" role="button" tabindex="0">
+              <svg class="nav-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span class="nav-item__label">Unmatched</span>
+            </a>
+          </nav>
+
+          <!-- Footer: Attendance Widget -->
+          <div class="sidebar__footer">
+            <div class="attendance-widget">
+              <div class="attendance-widget__label">
+                <span class="sidebar-eyebrow">Attendance</span>
+                <span class="attendance-widget__value" id="attendance-text">0 / 0 joined</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-bar__fill" id="attendance-bar" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ════════════════════════════════════════════════════
+           MAIN CONTENT AREA
+           ════════════════════════════════════════════════════ -->
+      <main class="main">
+
+        <!-- ── Top Bar ──────────────────────────────────── -->
+        <header class="topbar">
+          <div class="search-wrapper">
+            <svg class="search-wrapper__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              class="search-pill"
+              type="text"
+              placeholder="Search students..."
+              id="search-input"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
+          <div class="topbar__actions">
+            <div class="professor-info">
+              <div class="avatar">JP</div>
+              <span class="professor-name">Prof. Panganiban</span>
+            </div>
+          </div>
+        </header>
+
+        <!-- ── Content ──────────────────────────────────── -->
+        <section class="content">
+
+          <!-- Poll Error Banner -->
+          <div class="error-banner" id="error-banner" hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>Couldn't reach the server. Retrying... Showing last known data.</span>
+          </div>
+
+          <!-- Content Header -->
+          <div class="content__header">
+            <div class="content__title">
+              <h1>Live session</h1>
+            </div>
+            <div class="content__meta">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <span id="last-updated">Updated 0s ago</span>
+            </div>
+          </div>
+
+          <!-- Quick Access Section Label -->
+          <div class="section-label">Quick Access</div>
+
+          <!-- Summary Cards -->
+          <div class="cards-row">
+            <!-- Card 1: Session Status -->
+            <div class="card" id="card-session">
+              <span class="card__eyebrow">Session Status</span>
+              <span class="card__value" id="card-session-value">Idle</span>
+            </div>
+
+            <!-- Card 2: Active Prompt (accent card) -->
+            <div class="card card--accent card--no-prompt" id="card-prompt">
+              <span class="card__eyebrow">Active Prompt</span>
+              <span class="card__value" id="card-prompt-value">No active prompt</span>
+              <span class="card__detail" id="card-prompt-detail">Set one from the sidebar</span>
+            </div>
+
+            <!-- Card 3: Joined -->
+            <div class="card" id="card-joined">
+              <span class="card__eyebrow">Joined</span>
+              <span class="card__value" id="card-joined-value">0 / 0</span>
+            </div>
+
+            <!-- Card 4: Unmatched -->
+            <div class="card" id="card-unmatched">
+              <span class="card__eyebrow">Unmatched</span>
+              <span class="card__value" id="card-unmatched-value">0</span>
+            </div>
+          </div>
+
+          <!-- ── Roster Table ──────────────────────────── -->
+          <div class="table-container" id="view-roster">
+            <div class="table-header">
+              <span class="section-label">Live Roster</span>
+              <div class="table-filters">
+                <button class="filter-btn filter-btn--active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="focused">Focused</button>
+                <button class="filter-btn" data-filter="unfocused">Unfocused</button>
+                <button class="filter-btn" data-filter="not_joined">Not joined</button>
+              </div>
+            </div>
+
+            <table class="data-table" id="roster-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="name">Student</th>
+                  <th class="sortable" data-sort="status">Status</th>
+                  <th class="sortable" data-sort="lastActivity">Last Activity</th>
+                  <th class="sortable" data-sort="attentiveness">Attentiveness</th>
+                  <th class="sortable" data-sort="participation">Participation</th>
+                </tr>
+              </thead>
+              <tbody id="roster-body">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+
+            <div class="empty-state" id="roster-empty" hidden>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <p>No students to show</p>
+            </div>
+          </div>
+
+          <!-- ── Unmatched Table ────────────────────────── -->
+          <div class="table-container" id="view-unmatched" hidden>
+            <div class="table-header">
+              <div>
+                <span class="eyebrow">Unmatched Entries</span>
+                <p class="table-description">Activity from display names that don't match anyone on the roster. Ask these students to update their Meet display name.</p>
+              </div>
+            </div>
+
+            <table class="data-table" id="unmatched-table">
+              <thead>
+                <tr>
+                  <th>Display Name</th>
+                  <th>Status</th>
+                  <th>Last Activity</th>
+                  <th>Attentiveness</th>
+                  <th>Participation</th>
+                </tr>
+              </thead>
+              <tbody id="unmatched-body">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+
+            <div class="empty-state" id="unmatched-empty" hidden>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              <p>No unmatched entries. All activity matched to roster.</p>
+            </div>
+          </div>
+
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       PROMPT MODAL
+       ════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="prompt-modal">
+    <div class="modal">
+      <div class="modal__header">
+        <h2>Set new prompt</h2>
+        <button class="icon-btn" id="btn-close-modal" aria-label="Close modal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <div class="form-group">
+          <label for="prompt-phrase">Expected phrase</label>
+          <input type="text" id="prompt-phrase" placeholder='e.g. "this word"' maxlength="200" />
+          <span class="form-hint">Students must type this exact phrase in the Google Meet chat.</span>
+        </div>
+        <div class="form-group">
+          <label for="prompt-duration">Duration</label>
+          <select id="prompt-duration">
+            <option value="30">30 seconds</option>
+            <option value="60" selected>60 seconds</option>
+            <option value="90">90 seconds</option>
+            <option value="120">2 minutes</option>
+            <option value="180">3 minutes</option>
+            <option value="300">5 minutes</option>
+          </select>
+          <span class="form-hint">How long students have to respond before the prompt expires.</span>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" id="btn-cancel-prompt">Cancel</button>
+        <button class="btn btn--primary" id="btn-send-prompt">Send prompt</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       RESPONDENTS MODAL
+       ════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="respondents-modal">
+    <div class="modal modal--respondents">
+      <div class="modal__header">
+        <h2 id="respondents-modal-title">Prompt Responses</h2>
+        <button class="icon-btn" id="btn-close-respondents" aria-label="Close modal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div class="resp-tabs">
+        <button class="resp-tab resp-tab--active" id="resp-tab-responded" data-tab="responded">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Responded <span class="resp-tab__count" id="resp-count-yes">0</span>
+        </button>
+        <button class="resp-tab" id="resp-tab-not-responded" data-tab="not-responded">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          Not responded <span class="resp-tab__count" id="resp-count-no">0</span>
+        </button>
+      </div>
+
+      <!-- Student Lists -->
+      <div class="modal__body modal__body--list">
+        <div class="resp-panel" id="panel-responded">
+          <ul class="resp-list" id="resp-list-yes"></ul>
+          <div class="resp-empty" id="resp-empty-yes">No responses yet</div>
+        </div>
+        <div class="resp-panel" id="panel-not-responded" hidden>
+          <ul class="resp-list" id="resp-list-no"></ul>
+          <div class="resp-empty" id="resp-empty-no">Everyone responded!</div>
+        </div>
+      </div>
+
+      <div class="modal__footer">
+        <div class="resp-summary" id="resp-summary">0 / 0 responded</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts (ES Modules) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

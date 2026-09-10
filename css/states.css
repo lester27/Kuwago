@@ -1,0 +1,205 @@
+/* ═══════════════════════════════════════════════════════════
+   states.css — Loading skeletons, value transitions,
+   and dynamic state visual treatments
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Smooth Value Transitions ──────────────────────────── */
+/* Used to subtly animate number/text changes during polls */
+
+.value-updating {
+  animation: value-flash var(--duration-medium) var(--ease-out);
+}
+
+@keyframes value-flash {
+  0% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ── Skeleton Loading ──────────────────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--zinc-100);
+  border-radius: var(--radius-sm);
+  color: transparent !important;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 100%
+  );
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-card {
+  height: 88px;
+  background: var(--zinc-100);
+  border-radius: var(--radius-lg);
+}
+
+.skeleton-row {
+  height: 52px;
+  margin-bottom: 1px;
+  background: var(--zinc-50);
+  border-radius: var(--radius-xs);
+}
+
+/* ── Initial Loading State ─────────────────────────────── */
+.app-loading .cards-row .card {
+  animation: fade-in var(--duration-slow) var(--ease-out) both;
+}
+
+.app-loading .cards-row .card:nth-child(1) { animation-delay: 0ms; }
+.app-loading .cards-row .card:nth-child(2) { animation-delay: 60ms; }
+.app-loading .cards-row .card:nth-child(3) { animation-delay: 120ms; }
+.app-loading .cards-row .card:nth-child(4) { animation-delay: 180ms; }
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Table row staggered entrance */
+.data-table tbody tr {
+  animation: row-in var(--duration-medium) var(--ease-out) both;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Prompt Countdown States ───────────────────────────── */
+.countdown {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown--urgent {
+  color: var(--status-unmatched);
+  animation: countdown-blink 1s step-end infinite;
+}
+
+@keyframes countdown-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.prompt-expired {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+}
+
+/* ── Session Idle State ────────────────────────────────── */
+.card--idle .card__value {
+  color: var(--zinc-400);
+}
+
+/* ── Accent Card when no prompt is active ──────────────── */
+.card--accent.card--no-prompt {
+  background: var(--ice-blue-50);
+  border: 1px solid var(--ice-blue-200);
+  box-shadow: none;
+}
+
+.card--accent.card--no-prompt:hover {
+  border-color: #cbdcf8;
+  box-shadow: 0 8px 22px rgba(29, 97, 234, 0.08);
+}
+
+.card--accent.card--no-prompt .card__eyebrow {
+  color: #94a3b8;
+}
+
+.card--accent.card--no-prompt .card__value {
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.card--accent.card--no-prompt .card__detail {
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* ── Badge Pulse for Unmatched ─────────────────────────── */
+.badge--danger:not([data-count="0"]) {
+  animation: badge-pulse 2s var(--ease-out) infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+
+/* ── Scroll fade for content area ──────────────────────── */
+.content::after {
+  content: '';
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 24px;
+  margin-top: -24px;
+  background: linear-gradient(to top, white, transparent);
+  pointer-events: none;
+}
+
+/* ── Focus Ring Styles ─────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-400);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  border-radius: var(--radius-sm);
+}
+
+/* ── Reduced Motion ────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .live-dot::after {
+    animation: none;
+  }
+}

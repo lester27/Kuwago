@@ -1,0 +1,528 @@
+<!-- ═══════════════════════════════════════════════════════════
+     JavaScript.html — Dashboard JS adapted for GAS HtmlService.
+     Uses google.script.run instead of fetch() for API calls.
+     Included via <?!= include('JavaScript') ?> in Index.html.
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+/* ═══════════════════════════════════════════════════════════
+   API Layer — google.script.run wrappers
+   ═══════════════════════════════════════════════════════════ */
+
+const Api = (() => {
+  let _lastGoodData = null;
+  let _pollFailed = false;
+  let _consecutiveFailures = 0;
+
+  function fetchDashboardData() {
+    return new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler((data) => {
+          _lastGoodData = data;
+          _pollFailed = false;
+          _consecutiveFailures = 0;
+          resolve({ data, pollFailed: false });
+        })
+        .withFailureHandler((err) => {
+          _consecutiveFailures++;
+          _pollFailed = true;
+          console.warn('[api] Poll failed (attempt ' + _consecutiveFailures + '):', err.message);
+          resolve({
+            data: _lastGoodData,
+            pollFailed: true,
+            consecutiveFailures: _consecutiveFailures,
+            error: err.message
+          });
+        })
+        .getDashboardData();
+    });
+  }
+
+  function sendPrompt(phrase, durationSeconds) {
+    return new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler((result) => {
+          resolve(result);
+        })
+        .withFailureHandler((err) => {
+          console.error('[api] sendPrompt failed:', err.message);
+          resolve({ success: false, error: err.message });
+        })
+        .setNewPrompt(phrase, durationSeconds);
+    });
+  }
+
+  return { fetchDashboardData, sendPrompt, isPollFailed: () => _pollFailed };
+})();
+
+/* ═══════════════════════════════════════════════════════════
+   Render Module
+   ═══════════════════════════════════════════════════════════ */
+
+const Render = (() => {
+  function $(sel) { return document.querySelector(sel); }
+  function $$(sel) { return document.querySelectorAll(sel); }
+
+  function getInitials(name) {
+    const parts = name.split(',');
+    if (parts.length >= 2) {
+      const last = parts[0].trim();
+      const first = parts[1].trim();
+      return (first[0] + last[0]).toUpperCase();
+    }
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  }
+
+  function relativeTime(isoString) {
+    if (!isoString) return '\u2014';
+    const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+    if (diff < 0) return 'just now';
+    if (diff < 60) return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    return Math.floor(diff / 3600) + 'h ago';
+  }
+
+  function formatStatus(status) {
+    switch (status) {
+      case 'focused': return 'Focused';
+      case 'unfocused': return 'Unfocused';
+      case 'not_joined': return 'Not joined';
+      default: return status;
+    }
+  }
+
+  function pctClass(value) {
+    if (value === 0) return 'pct-cell--zero';
+    if (value >= 80) return 'pct-cell--high';
+    if (value >= 50) return 'pct-cell--mid';
+    return 'pct-cell--low';
+  }
+
+  function formatCountdown(expiresAt) {
+    const remaining = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    if (remaining <= 0) return null;
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    return { text: m > 0 ? m + 'm ' + s + 's' : s + 's', remaining: remaining };
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  /* ── Summary Cards ─────────────────────────────────── */
+  function renderSummaryCards(data) {
+    if (!data) return;
+    const { sessionActive, activePrompt, students } = data;
+
+    const sessionValue = $('#card-session-value');
+    if (sessionActive) {
+      sessionValue.textContent = 'Active';
+      sessionValue.style.color = '';
+    } else {
+      sessionValue.textContent = 'Idle';
+      sessionValue.style.color = 'var(--zinc-400)';
+    }
+
+    const promptCard = $('#card-prompt');
+    const promptValue = $('#card-prompt-value');
+    const promptDetail = $('#card-prompt-detail');
+
+    if (activePrompt) {
+      const cd = formatCountdown(activePrompt.expiresAt);
+      promptCard.classList.remove('card--no-prompt');
+
+      if (cd) {
+        promptValue.textContent = '"' + activePrompt.phrase + '"';
+        promptDetail.innerHTML = '';
+        const countdownSpan = document.createElement('span');
+        countdownSpan.className = 'countdown' + (cd.remaining <= 10 ? ' countdown--urgent' : '');
+        countdownSpan.textContent = cd.text;
+        const tallySpan = document.createElement('span');
+        tallySpan.textContent = ' \u00B7 ' + activePrompt.responsesReceived + '/' + activePrompt.rosterCount + ' responded';
+        promptDetail.appendChild(countdownSpan);
+        promptDetail.appendChild(tallySpan);
+      } else {
+        promptValue.textContent = '"' + activePrompt.phrase + '"';
+        promptDetail.innerHTML = '';
+        const expiredSpan = document.createElement('span');
+        expiredSpan.className = 'prompt-expired';
+        expiredSpan.textContent = 'Expired';
+        const tallySpan = document.createElement('span');
+        tallySpan.textContent = ' \u00B7 ' + activePrompt.responsesReceived + '/' + activePrompt.rosterCount + ' responded';
+        promptDetail.appendChild(expiredSpan);
+        promptDetail.appendChild(tallySpan);
+      }
+    } else {
+      promptCard.classList.add('card--no-prompt');
+      promptValue.textContent = 'No active prompt';
+      promptDetail.textContent = 'Set one from the sidebar';
+    }
+
+    const matched = students.filter(function(s) { return s.matched; });
+    const joined = matched.filter(function(s) { return s.status !== 'not_joined'; }).length;
+    const total = matched.length;
+    $('#card-joined-value').textContent = joined + ' / ' + total;
+
+    const unmatched = students.filter(function(s) { return !s.matched; }).length;
+    const unmatchedValue = $('#card-unmatched-value');
+    const unmatchedCard = $('#card-unmatched');
+    unmatchedValue.textContent = unmatched;
+    if (unmatched > 0) { unmatchedCard.classList.add('card--warning'); }
+    else { unmatchedCard.classList.remove('card--warning'); }
+  }
+
+  /* ── Roster Table ──────────────────────────────────── */
+  let _currentFilter = 'all';
+  let _currentSearch = '';
+  let _currentSort = { key: 'name', dir: 'asc' };
+
+  function setFilter(f) { _currentFilter = f; }
+  function setSearch(s) { _currentSearch = s.toLowerCase().trim(); }
+  function setSort(key) {
+    if (_currentSort.key === key) { _currentSort.dir = _currentSort.dir === 'asc' ? 'desc' : 'asc'; }
+    else { _currentSort = { key: key, dir: 'asc' }; }
+  }
+
+  function renderRosterTable(students) {
+    if (!students) return;
+    const tbody = $('#roster-body');
+    const emptyState = $('#roster-empty');
+    if (!tbody) return;
+
+    let rows = students.filter(function(s) { return s.matched; });
+    if (_currentFilter !== 'all') rows = rows.filter(function(s) { return s.status === _currentFilter; });
+    if (_currentSearch) rows = rows.filter(function(s) { return s.name.toLowerCase().indexOf(_currentSearch) !== -1; });
+
+    rows.sort(function(a, b) {
+      let va, vb;
+      switch (_currentSort.key) {
+        case 'name':
+          return _currentSort.dir === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+        case 'status':
+          const order = { not_joined: 0, unfocused: 1, focused: 2 };
+          va = order[a.status] || 0; vb = order[b.status] || 0;
+          return _currentSort.dir === 'asc' ? va - vb : vb - va;
+        case 'lastActivity':
+          va = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+          vb = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+          return _currentSort.dir === 'asc' ? va - vb : vb - va;
+        case 'attentiveness':
+          return _currentSort.dir === 'asc' ? a.attentivenessPct - b.attentivenessPct : b.attentivenessPct - a.attentivenessPct;
+        case 'participation':
+          return _currentSort.dir === 'asc' ? a.participationRate - b.participationRate : b.participationRate - a.participationRate;
+        default: return 0;
+      }
+    });
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '';
+      if (emptyState) {
+        emptyState.hidden = false;
+        const msg = emptyState.querySelector('p');
+        if (_currentSearch) msg.textContent = 'No students match "' + _currentSearch + '"';
+        else if (_currentFilter !== 'all') msg.textContent = 'No students with status: ' + formatStatus(_currentFilter);
+        else msg.textContent = 'No students in roster';
+      }
+      return;
+    }
+    if (emptyState) emptyState.hidden = true;
+
+    const fragment = document.createDocumentFragment();
+    rows.forEach(function(student, index) {
+      const tr = document.createElement('tr');
+      tr.style.animationDelay = (index * 15) + 'ms';
+      tr.innerHTML =
+        '<td><div class="student-cell"><div class="student-avatar">' + getInitials(student.name) + '</div><span class="student-name">' + escapeHtml(student.name) + '</span></div></td>' +
+        '<td><div class="status-cell"><span class="status-label status-label--' + student.status + '">' + formatStatus(student.status) + '</span></div></td>' +
+        '<td class="timestamp-cell">' + relativeTime(student.lastActivityAt) + '</td>' +
+        '<td class="pct-cell ' + pctClass(student.attentivenessPct) + '">' + (student.attentivenessPct > 0 ? student.attentivenessPct + '%' : '\u2014') + '</td>' +
+        '<td class="pct-cell ' + pctClass(student.participationRate) + '">' + (student.participationRate > 0 ? student.participationRate + '%' : '\u2014') + '</td>';
+      fragment.appendChild(tr);
+    });
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+  }
+
+  /* ── Unmatched Table ───────────────────────────────── */
+  function renderUnmatchedTable(students) {
+    if (!students) return;
+    const tbody = $('#unmatched-body');
+    const emptyState = $('#unmatched-empty');
+    if (!tbody) return;
+
+    const rows = students.filter(function(s) { return !s.matched; });
+    if (rows.length === 0) {
+      tbody.innerHTML = '';
+      if (emptyState) emptyState.hidden = false;
+      return;
+    }
+    if (emptyState) emptyState.hidden = true;
+
+    const fragment = document.createDocumentFragment();
+    rows.forEach(function(student, index) {
+      const tr = document.createElement('tr');
+      tr.style.animationDelay = (index * 15) + 'ms';
+      tr.innerHTML =
+        '<td><div class="student-cell"><div class="student-avatar" style="background:var(--status-unmatched-bg);color:var(--status-unmatched);">' + getInitials(student.name) + '</div><span class="student-name" style="color:var(--status-unmatched);">' + escapeHtml(student.name) + '</span></div></td>' +
+        '<td><div class="status-cell"><span class="status-label status-label--' + student.status + '">' + formatStatus(student.status) + '</span></div></td>' +
+        '<td class="timestamp-cell">' + relativeTime(student.lastActivityAt) + '</td>' +
+        '<td class="pct-cell ' + pctClass(student.attentivenessPct) + '">' + (student.attentivenessPct > 0 ? student.attentivenessPct + '%' : '\u2014') + '</td>' +
+        '<td class="pct-cell ' + pctClass(student.participationRate) + '">' + (student.participationRate > 0 ? student.participationRate + '%' : '\u2014') + '</td>';
+      fragment.appendChild(tr);
+    });
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+  }
+
+  /* ── Attendance Widget ─────────────────────────────── */
+  function renderAttendanceWidget(students) {
+    if (!students) return;
+    const matched = students.filter(function(s) { return s.matched; });
+    const joined = matched.filter(function(s) { return s.status !== 'not_joined'; }).length;
+    const total = matched.length;
+    const pct = total > 0 ? Math.round((joined / total) * 100) : 0;
+    const text = $('#attendance-text');
+    const bar = $('#attendance-bar');
+    if (text) text.textContent = joined + ' / ' + total + ' joined';
+    if (bar) bar.style.width = pct + '%';
+  }
+
+  /* ── Last Updated ──────────────────────────────────── */
+  let _lastPollTime = null;
+  let _lastUpdatedTimer = null;
+
+  function renderLastUpdated() {
+    _lastPollTime = Date.now();
+    if (_lastUpdatedTimer) clearInterval(_lastUpdatedTimer);
+    const el = $('#last-updated');
+    if (!el) return;
+    function update() {
+      if (!_lastPollTime) return;
+      const secs = Math.floor((Date.now() - _lastPollTime) / 1000);
+      el.textContent = 'Updated ' + secs + 's ago';
+    }
+    update();
+    _lastUpdatedTimer = setInterval(update, 1000);
+  }
+
+  /* ── Poll Error ────────────────────────────────────── */
+  function renderPollError(isError) {
+    const banner = $('#error-banner');
+    if (!banner) return;
+    banner.hidden = !isError;
+  }
+
+  /* ── Render All ────────────────────────────────────── */
+  function renderAll(data, pollFailed) {
+    if (!data) return;
+    renderSummaryCards(data);
+    renderRosterTable(data.students);
+    renderUnmatchedTable(data.students);
+    renderAttendanceWidget(data.students);
+    renderLastUpdated();
+    renderPollError(pollFailed);
+  }
+
+  return {
+    renderAll: renderAll,
+    renderSummaryCards: renderSummaryCards,
+    renderRosterTable: renderRosterTable,
+    setFilter: setFilter,
+    setSearch: setSearch,
+    setSort: setSort
+  };
+})();
+
+/* ═══════════════════════════════════════════════════════════
+   Prompt Module
+   ═══════════════════════════════════════════════════════════ */
+
+const Prompt = (() => {
+  let _isOpen = false;
+
+  function $modal()    { return document.getElementById('prompt-modal'); }
+  function $phrase()   { return document.getElementById('prompt-phrase'); }
+  function $duration() { return document.getElementById('prompt-duration'); }
+  function $btnSend()  { return document.getElementById('btn-send-prompt'); }
+
+  function openModal() {
+    const modal = $modal();
+    if (!modal) return;
+    _isOpen = true;
+    modal.classList.add('is-open');
+    clearErrors();
+    const phrase = $phrase();
+    if (phrase) { phrase.value = ''; setTimeout(function() { phrase.focus(); }, 200); }
+    const duration = $duration();
+    if (duration) duration.value = '60';
+  }
+
+  function closeModal() {
+    const modal = $modal();
+    if (!modal) return;
+    _isOpen = false;
+    modal.classList.remove('is-open');
+  }
+
+  function showError(input, message) {
+    const group = input.closest('.form-group');
+    if (!group) return;
+    group.classList.add('form-group--error');
+    let errorEl = group.querySelector('.form-error');
+    if (!errorEl) {
+      errorEl = document.createElement('span');
+      errorEl.className = 'form-error';
+      group.appendChild(errorEl);
+    }
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+  }
+
+  function clearErrors() {
+    document.querySelectorAll('.form-group--error').forEach(function(g) {
+      g.classList.remove('form-group--error');
+      const err = g.querySelector('.form-error');
+      if (err) err.style.display = 'none';
+    });
+  }
+
+  function validate() {
+    const phrase = $phrase();
+    if (!phrase) return false;
+    const value = phrase.value.trim();
+    if (!value) { showError(phrase, 'Please enter a phrase'); return false; }
+    if (value.length > 200) { showError(phrase, 'Phrase must be 200 characters or fewer'); return false; }
+    return true;
+  }
+
+  function init(onPromptSent) {
+    document.getElementById('btn-set-prompt').addEventListener('click', openModal);
+    document.getElementById('btn-cancel-prompt').addEventListener('click', closeModal);
+    document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+
+    $modal().addEventListener('click', function(e) { if (e.target === $modal()) closeModal(); });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && _isOpen) closeModal(); });
+
+    async function handleSubmit() {
+      clearErrors();
+      if (!validate()) return;
+      const phrase = $phrase().value.trim();
+      const durationSeconds = parseInt($duration().value, 10);
+      const sendBtn = $btnSend();
+      if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending...'; }
+      try {
+        const result = await Api.sendPrompt(phrase, durationSeconds);
+        if (result.success) { closeModal(); if (onPromptSent) onPromptSent(); }
+        else { showError($phrase(), 'Failed to send: ' + (result.error || 'Unknown error')); }
+      } catch (err) { showError($phrase(), 'Error: ' + err.message); }
+      finally { if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send prompt'; } }
+    }
+
+    $btnSend().addEventListener('click', handleSubmit);
+    $phrase().addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } });
+  }
+
+  return { init: init };
+})();
+
+/* ═══════════════════════════════════════════════════════════
+   App Entry Point
+   ═══════════════════════════════════════════════════════════ */
+
+(function() {
+  const POLL_INTERVAL_MS = 5000;
+  const COUNTDOWN_INTERVAL_MS = 1000;
+
+  let _latestData = null;
+  let _currentView = 'roster';
+
+  document.addEventListener('DOMContentLoaded', async function() {
+    initNav();
+    initSearch();
+    initFilters();
+    initSorting();
+    Prompt.init(onPromptSent);
+
+    await poll();
+    setInterval(poll, POLL_INTERVAL_MS);
+    setInterval(function() {
+      if (_latestData) Render.renderSummaryCards(_latestData);
+    }, COUNTDOWN_INTERVAL_MS);
+  });
+
+  async function poll() {
+    const result = await Api.fetchDashboardData();
+    if (result.data) {
+      _latestData = result.data;
+      Render.renderAll(result.data, result.pollFailed);
+    }
+  }
+
+  async function onPromptSent() { await poll(); }
+
+  function initNav() {
+    const navRoster = document.getElementById('nav-roster');
+    const navUnmatched = document.getElementById('nav-unmatched');
+    const viewRoster = document.getElementById('view-roster');
+    const viewUnmatched = document.getElementById('view-unmatched');
+
+    navRoster.addEventListener('click', function() {
+      _currentView = 'roster';
+      navRoster.classList.add('nav-item--active');
+      navUnmatched.classList.remove('nav-item--active');
+      viewRoster.hidden = false;
+      viewUnmatched.hidden = true;
+    });
+    navUnmatched.addEventListener('click', function() {
+      _currentView = 'unmatched';
+      navUnmatched.classList.add('nav-item--active');
+      navRoster.classList.remove('nav-item--active');
+      viewRoster.hidden = true;
+      viewUnmatched.hidden = false;
+    });
+  }
+
+  function initSearch() {
+    const input = document.getElementById('search-input');
+    if (!input) return;
+    let debounceTimer = null;
+    input.addEventListener('input', function() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function() {
+        Render.setSearch(input.value);
+        if (_latestData) Render.renderRosterTable(_latestData.students);
+      }, 150);
+    });
+  }
+
+  function initFilters() {
+    const buttons = document.querySelectorAll('.filter-btn');
+    buttons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        buttons.forEach(function(b) { b.classList.remove('filter-btn--active'); });
+        btn.classList.add('filter-btn--active');
+        Render.setFilter(btn.getAttribute('data-filter'));
+        if (_latestData) Render.renderRosterTable(_latestData.students);
+      });
+    });
+  }
+
+  function initSorting() {
+    const headers = document.querySelectorAll('.data-table th.sortable');
+    headers.forEach(function(th) {
+      th.addEventListener('click', function() {
+        const key = th.getAttribute('data-sort');
+        if (!key) return;
+        headers.forEach(function(h) { h.classList.remove('sorted'); });
+        th.classList.add('sorted');
+        Render.setSort(key);
+        if (_latestData) Render.renderRosterTable(_latestData.students);
+      });
+    });
+  }
+})();
+</script>

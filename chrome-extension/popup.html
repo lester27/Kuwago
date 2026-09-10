@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    /* ── Reset ───────────────────────────────────────── */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ── Design Tokens (matching dashboard) ──────────── */
+    :root {
+      --accent-50:  #eef4ff;
+      --accent-100: #e0ecff;
+      --accent-500: #3b82f6;
+      --accent-600: #1d61ea;
+      --accent-700: #1753ce;
+      --accent-800: #1244ab;
+
+      --ice-50:  #f4f7fc;
+      --ice-100: #eef3fc;
+      --ice-200: #e2eaf8;
+
+      --zinc-50:  #fafafa;
+      --zinc-200: #e2e8f0;
+      --zinc-300: #cbd5e1;
+      --zinc-400: #94a3b8;
+      --zinc-500: #64748b;
+      --zinc-600: #475569;
+      --zinc-800: #1e293b;
+      --zinc-900: #0f172a;
+
+      --green:    #16a34a;
+      --green-bg: #f0fdf4;
+      --amber:    #d97706;
+      --amber-bg: #fffbeb;
+      --red:      #ef4444;
+      --red-bg:   #fef2f2;
+
+      --font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 999px;
+    }
+
+    body {
+      width: 340px;
+      font-family: var(--font);
+      font-size: 13px;
+      color: var(--zinc-800);
+      background: var(--accent-600);
+      overflow: hidden;
+    }
+
+    /* ── Popup Shell ─────────────────────────────────── */
+    .popup {
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border-radius: var(--radius-lg);
+      margin: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      animation: popupIn .3s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    @keyframes popupIn {
+      from { opacity: 0; transform: translateY(6px) scale(.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px 14px;
+      background: linear-gradient(135deg, var(--accent-600) 0%, var(--accent-700) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -30px;
+      right: -20px;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.08);
+    }
+
+    .header__icon {
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-sm);
+      background: rgba(255,255,255,.15);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .header__icon svg { width: 20px; height: 20px; color: white; }
+
+    .header__text { position: relative; z-index: 1; }
+
+    .header__title {
+      font-size: 15px;
+      font-weight: 700;
+      color: white;
+      letter-spacing: -0.01em;
+    }
+
+    .header__subtitle {
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(255,255,255,.7);
+      margin-top: 1px;
+    }
+
+    /* ── Status Badge (top-right of header) ──────────── */
+    .header__badge {
+      margin-left: auto;
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(255,255,255,.15);
+      color: white;
+      backdrop-filter: blur(4px);
+    }
+
+    .header__badge--connected { background: rgba(22,163,74,.3); }
+    .header__badge--warning   { background: rgba(217,119,6,.3); }
+    .header__badge--error     { background: rgba(239,68,68,.3); }
+
+    .header__badge .pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: white;
+    }
+
+    .header__badge--connected .pulse { background: #86efac; animation: pulse 2s ease-in-out infinite; }
+    .header__badge--warning   .pulse { background: #fcd34d; }
+    .header__badge--error     .pulse { background: #fca5a5; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .5; transform: scale(.8); }
+    }
+
+    /* ── Body ────────────────────────────────────────── */
+    .body {
+      padding: 14px 18px 16px;
+    }
+
+    /* ── Cards Grid ──────────────────────────────────── */
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .card {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: var(--ice-50);
+      border: 1px solid var(--ice-200);
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(29,97,234,.08);
+    }
+
+    .card--full {
+      grid-column: 1 / -1;
+    }
+
+    .card__label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--zinc-400);
+      margin-bottom: 4px;
+    }
+
+    .card__value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--zinc-900);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card__value--sm {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .card__value--green  { color: var(--green); }
+    .card__value--amber  { color: var(--amber); }
+    .card__value--muted  { color: var(--zinc-400); }
+
+    .card__hint {
+      font-size: 10px;
+      color: var(--zinc-400);
+      margin-top: 2px;
+    }
+
+    /* ── Status Dot (inline) ─────────────────────────── */
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot--green { background: var(--green); box-shadow: 0 0 0 2px var(--green-bg); }
+    .dot--amber { background: var(--amber); box-shadow: 0 0 0 2px var(--amber-bg); }
+    .dot--gray  { background: var(--zinc-300); }
+    .dot--red   { background: var(--red);   box-shadow: 0 0 0 2px var(--red-bg); }
+
+    /* ── Prompt Section ──────────────────────────────── */
+    .prompt-card {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: var(--accent-50);
+      border: 1px solid var(--accent-100);
+    }
+
+    .prompt-card__label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--accent-600);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .prompt-card__label svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .prompt-card__phrase {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--zinc-900);
+    }
+
+    .prompt-card--empty {
+      background: var(--ice-50);
+      border-color: var(--ice-200);
+    }
+
+    .prompt-card--empty .prompt-card__label {
+      color: var(--zinc-400);
+    }
+
+    .prompt-card--empty .prompt-card__phrase {
+      color: var(--zinc-400);
+      font-weight: 500;
+    }
+
+    /* ── Footer ──────────────────────────────────────── */
+    .footer {
+      padding: 10px 18px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-top: 1px solid var(--ice-200);
+    }
+
+    .footer svg {
+      width: 12px;
+      height: 12px;
+      color: var(--zinc-300);
+    }
+
+    .footer__text {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--zinc-400);
+    }
+
+    /* ── Animations for staggered card entry ─────────── */
+    .card, .prompt-card {
+      animation: cardIn .35s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    .cards .card:nth-child(1) { animation-delay: .05s; }
+    .cards .card:nth-child(2) { animation-delay: .1s; }
+    .cards .card:nth-child(3) { animation-delay: .15s; }
+    .prompt-card { animation-delay: .2s; }
+
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="popup">
+    <!-- Header with blue gradient matching sidebar -->
+    <div class="header">
+      <div class="header__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="6" />
+          <circle cx="12" cy="12" r="10" opacity="0.5" />
+        </svg>
+      </div>
+      <div class="header__text">
+        <div class="header__title">Classroom Monitor</div>
+        <div class="header__subtitle">Student engagement tracker</div>
+      </div>
+      <div class="header__badge" id="badge-connection">
+        <span class="pulse"></span>
+        <span id="badge-label">Checking</span>
+      </div>
+    </div>
+
+    <!-- Status Cards -->
+    <div class="body">
+      <div class="cards">
+        <div class="card">
+          <div class="card__label">Meet Tab</div>
+          <div class="card__value" id="status-meet">
+            <span class="dot dot--gray"></span>
+            <span>None</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card__label">Student Name</div>
+          <div class="card__value card__value--sm" id="status-name">—</div>
+        </div>
+        <div class="card card--full" id="card-prompt">
+          <!-- Filled dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      <span class="footer__text">Data is sent to your professor's dashboard</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
