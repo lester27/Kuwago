@@ -1,23 +1,23 @@
-# Setup Guide
+# Complete Setup Guide
 
-This guide walks through setting up all three components of Kuwago from scratch.
+This guide walks you through setting up all three layers of **Kuwago v2.0.0** from start to finish.
 
-**Estimated time:** 20–30 minutes
+**Estimated setup time:** 15–20 minutes.
 
 ---
 
 ## Prerequisites
 
-| Tool | Minimum version | Notes |
+| Component | Requirement | Purpose |
 |---|---|---|
-| Node.js | 18+ | For the local dashboard server |
-| Google Chrome | Any current version | For the extension |
-| Google Account | — | For Apps Script + Sheets |
-| Git | Any | To clone the repo |
+| **Node.js** or **Python 3** | Node 18+ or Python 3.8+ | Serving the Professor Dashboard locally |
+| **Google Chrome** | Modern stable version | Running the extension and dashboard |
+| **Google Account** | Any personal or Google Workspace account | Hosting Google Sheets and Apps Script backend |
+| **Git** | Any version | Cloning and updating the repository |
 
 ---
 
-## Step 1 — Clone the repo
+## Step 1 — Clone the Repository
 
 ```bash
 git clone https://github.com/lester27/Kuwago.git
@@ -26,126 +26,145 @@ cd Kuwago
 
 ---
 
-## Step 2 — Set up the Google Sheet
+## Step 2 — Create the Google Spreadsheet & Backend
 
-1. Go to [Google Sheets](https://sheets.google.com) and create a new blank spreadsheet.
-2. Rename it to something like **Kuwago Data**.
-3. Create five sheets (tabs at the bottom) with **exactly** these names:
+1. Navigate to [Google Sheets](https://sheets.google.com) and create a **blank spreadsheet**.
+2. Rename the document to **Kuwago Database**.
+3. Copy the **Spreadsheet ID** from the browser address bar:
+   ```
+   https://docs.google.com/spreadsheets/d/1eOmyrcEPnxNj7qVkTpSiCpYiQlBBQs8_8xn2XyPvVQs/edit
+                                          ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+   ```
+4. In the spreadsheet menu bar, open **Extensions → Apps Script**.
+5. Rename the Apps Script project to **Kuwago Backend**.
+6. Create the script files:
+   - In `Code.gs`, delete default code and paste the content of [`apps-script/Code.gs`](../apps-script/Code.gs).
+   - Click **+ → Script**, name it `SheetHelpers`, and paste [`apps-script/SheetHelpers.gs`](../apps-script/SheetHelpers.gs).
+   - Click **+ → Script**, name it `Engagement`, and paste [`apps-script/Engagement.gs`](../apps-script/Engagement.gs).
+7. In `SheetHelpers.gs` around line 36, paste your **Spreadsheet ID**:
+   ```javascript
+   function getSpreadsheet() {
+     var SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+     return SpreadsheetApp.openById(SPREADSHEET_ID);
+   }
+   ```
+8. Save all files (**Ctrl+S** or the disk icon).
+
+---
+
+## Step 3 — Auto-Initialize Sheets via `setupSheets()`
+
+You don't need to manually create sheets or type headers:
+
+1. In the Apps Script toolbar, click the function dropdown (where it says `doGet` or `myFunction`) and choose **`setupSheets`**.
+2. Click **▶ Run**.
+3. Authorize the permissions prompt:
+   - Click **Review permissions** → select your Google account.
+   - Click **Advanced** (bottom left) → **Go to Kuwago Backend (unsafe)** → **Allow**.
+4. Return to your Google Spreadsheet. You will now see seven initialized tabs:
+   - `Courses`
    - `Students`
    - `Sessions`
    - `FocusEvents`
    - `ChatPrompts`
    - `ChatResponses`
-4. Add header rows to each sheet:
-
-   **Students:** `StudentName`
-
-   **Sessions:** `SessionID | StudentName | Matched | JoinTime | LeaveTime`
-
-   **FocusEvents:** `EventID | StudentName | SessionID | Type | Timestamp`
-
-   **ChatPrompts:** `PromptID | ExpectedPhrase | IssuedAt | ExpiresAt | IsActive`
-
-   **ChatResponses:** `ResponseID | StudentName | PromptID | SubmittedText | Matched | Timestamp`
-
-5. In the Students sheet, add your student roster — one name per row in the format:
-   ```
-   LastName, FirstName, M.I.
-   ```
-   Example: `Dela Cruz, Juan A.`
-
-6. Copy the **Spreadsheet ID** from the URL:
-   ```
-   https://docs.google.com/spreadsheets/d/THIS_IS_THE_ID/edit
-   ```
+   - `Heartbeats`
 
 ---
 
-## Step 3 — Deploy the Apps Script backend
+## Step 4 — Populate Course & Roster Data
 
-1. Go to [script.google.com](https://script.google.com) and create a **New Project**.
-2. Rename it to **Kuwago Backend**.
-3. Copy the content of each `.gs` file from `apps-script/` into corresponding script files:
-   - `Code.gs` → replaces the default `Code.gs`
-   - Create `SheetHelpers.gs` (File → New → Script)
-   - Create `Engagement.gs`
-4. In `Code.gs`, find the `SPREADSHEET_ID` constant and replace it with your sheet's ID:
-   ```javascript
-   const SPREADSHEET_ID = 'paste-your-id-here';
-   ```
-5. Also copy the HTML files:
-   - File → New → HTML → name it `Index` → paste content of `apps-script/Index.html`
-   - Repeat for `JavaScript` and `Styles`
-6. Deploy as a Web App:
-   - Click **Deploy → New deployment**
-   - Type: **Web app**
-   - Execute as: **Me**
-   - Who has access: **Anyone** (required for extension to call it)
-   - Click **Deploy**
-7. Copy the **Web App URL** — it looks like:
-   ```
-   https://script.google.com/macros/s/AKfycb.../exec
-   ```
+Open your Google Spreadsheet:
+
+### 1. In the `Courses` tab:
+Add your course sections (one per row):
+| SectionID | CourseName | SectionName |
+|---|---|---|
+| `BSIT301-A` | `IT Capstone Project` | `Section A` |
+| `BSIT301-B` | `IT Capstone Project` | `Section B` |
+
+### 2. In the `Students` tab:
+Add your student roster. The `SectionID` must match the `Courses` tab:
+| StudentName | SectionID |
+|---|---|
+| `Dela Cruz, Juan A.` | `BSIT301-A` |
+| `Santos, Maria C.` | `BSIT301-A` |
+| `Reyes, Mark L.` | `BSIT301-B` |
 
 ---
 
-## Step 4 — Configure the dashboard
+## Step 5 — Deploy Apps Script as a Web App
 
-Open `js/api.js` and replace the `API_BASE` constant with your deployment URL:
+1. In Apps Script, click **Deploy → New deployment**.
+2. Click the gear icon → select **Web app**.
+3. Fill in the deployment modal:
+   - **Description**: `Kuwago Production v2.0.0`
+   - **Execute as**: `Me`
+   - **Who has access**: `Anyone` *(mandatory for extension and dashboard)*
+4. Click **Deploy**.
+5. Copy the **Web App URL** (e.g. `https://script.google.com/macros/s/.../exec`).
 
+---
+
+## Step 6 — Connect Dashboard & Extension
+
+Configure the Web App URL in two places:
+
+### 1. Dashboard: [`js/api.js`](../js/api.js)
 ```javascript
-const API_BASE = 'https://script.google.com/macros/s/YOUR_DEPLOY_ID/exec';
+const API_BASE = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
 ```
 
-Save the file.
+### 2. Chrome Extension: [`chrome-extension/background.js`](../chrome-extension/background.js)
+```javascript
+const API_BASE = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+```
 
 ---
 
-## Step 5 — Run the dashboard
+## Step 7 — Run the Professor Dashboard
+
+Start a local static server inside the repository root:
 
 ```bash
-node serve-dashboard.js
+# Option A: Zero-dependency Node.js server
+npm start
+# or: node serve-dashboard.js
+
+# Option B: Python 3 server
+python -m http.server 8080
 ```
 
-Open **http://127.0.0.1:8080** in your browser.
+Open your browser to: **`http://localhost:8080`**
 
-> **Mock mode:** To test the UI without a live backend, open  
-> `http://127.0.0.1:8080?mock=true`
-
----
-
-## Step 6 — Install the Chrome extension (per student)
-
-See [`docs/chrome-extension.md`](chrome-extension.md) for the full guide.
-
-Short version:
-1. Open `chrome://extensions` in Chrome.
-2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked**.
-4. Select the `chrome-extension/` folder.
-5. The extension is now installed — it activates automatically on `meet.google.com`.
-
-> **Student instructions:** Tell students to set their Google Meet display name
-> to exactly: `LastName, FirstName, M.I.` before joining class.
-> Example: `Santos, Maria B.`
+*(To test the interface with simulated data offline, append `?mock=true`: `http://localhost:8080/?mock=true`)*
 
 ---
 
-## Updating the deployment
+## Step 8 — Install the Student Chrome Extension
 
-After editing Apps Script files, re-deploy:
-- **Deploy → Manage deployments → Edit → New version → Deploy**
-- The URL stays the same.
-
-After editing dashboard files, no redeploy needed — just refresh the browser.
+1. Open Google Chrome and visit: `chrome://extensions`
+2. Toggle on **Developer mode** in the top-right corner.
+3. Click **Load unpacked** (top-left).
+4. Select the `chrome-extension/` directory from the Kuwago repository.
+5. The **Kuwago Classroom Monitor** extension will now be active in your toolbar.
 
 ---
 
-## Troubleshooting
+## Step 9 — Verification & Live Testing Walkthrough
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Dashboard shows "Poll failed" | `API_BASE` not set / Apps Script not deployed | Check Step 4 + redeploy |
-| All students show "Not Joined" | Extension not installed, or Meet name mismatch | Verify extension + student names |
-| Student appears in Unmatched | Display name doesn't match roster exactly | Ask student to rename in Meet |
-| Apps Script quota error | Too many requests | Reduce poll frequency in `app.js` |
+1. In the Professor Dashboard, select your course section from the dropdown (`BSIT301-A`).
+2. Click **Start Class**. The live session timer will begin ticking.
+3. Open a Google Meet call at `meet.google.com` (as a student).
+4. Verify on the dashboard:
+   - Student's status updates to **On Meet tab**.
+   - Attendance badge marks as **Present**.
+5. Switch to a different tab on the student machine:
+   - After a short debounce, status switches to **Away from Meet tab**.
+6. Click **Send Prompt** on the dashboard, type `"code"` for 60 seconds:
+   - Student sees the prompt notification in Meet.
+   - Student types `"code"` in the Meet chat.
+   - Dashboard instantly registers the response and tallies it in real time.
+7. Click **End Class** and confirm:
+   - The **Session Summary** modal appears showing overall stats.
+   - Open your Google Spreadsheet: a new tab named `Session_2026-09-11_BSIT301-A` has been automatically compiled with all records!

@@ -3,133 +3,17 @@
    Recomputed on every dashboardData request — never stored.
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Compute attentiveness percentage for a student.
- *
- * Attentiveness % = total focused time ÷ total session time
- *
- * Logic:
- * - Walk through the student's FocusEvents in chronological order.
- * - The student starts "focused" at JoinTime.
- * - Each "lost" event marks the start of an unfocused period.
- * - Each "regained" event marks the end of an unfocused period.
- * - If the student is currently focused (no unresolved "lost"),
- *   focused time extends to now.
- * - Total session time = now - JoinTime (or LeaveTime if left).
- *
- * @param {Object} session — { JoinTime, LeaveTime }
- * @param {Object[]} focusEvents — sorted by Timestamp asc,
- *   each { Type: 'lost'|'regained', Timestamp }
- * @returns {number} — Integer 0–100
- */
-function computeAttentiveness(session, focusEvents) {
-  if (!session || !session.JoinTime) return 0;
-
-  const joinTime = new Date(session.JoinTime).getTime();
-  const endTime = session.LeaveTime
-    ? new Date(session.LeaveTime).getTime()
-    : Date.now();
-
-  const totalTime = endTime - joinTime;
-  if (totalTime <= 0) return 100;
-
-  /* Sort events chronologically */
-  const events = focusEvents
-    .filter(e => e.Timestamp)
-    .map(e => ({
-      type: e.Type,
-      time: new Date(e.Timestamp).getTime()
-    }))
-    .sort((a, b) => a.time - b.time);
-
-  /*
-   * Walk through events. Student starts focused at joinTime.
-   * Accumulate unfocused time between lost→regained pairs.
-   */
-  let unfocusedTime = 0;
-  let lostAt = null;
-
-  for (const evt of events) {
-    if (evt.type === 'lost' && lostAt === null) {
-      lostAt = evt.time;
-    } else if (evt.type === 'regained' && lostAt !== null) {
-      unfocusedTime += evt.time - lostAt;
-      lostAt = null;
-    }
-  }
-
-  /* If currently unfocused (unresolved "lost"), extend to endTime */
-  if (lostAt !== null) {
-    unfocusedTime += endTime - lostAt;
-  }
-
-  const focusedTime = totalTime - unfocusedTime;
-  const pct = Math.round((focusedTime / totalTime) * 100);
-
-  return Math.max(0, Math.min(100, pct));
-}
+/* Threshold constants (tunable) */
+var FOCUS_LAPSE_THRESHOLD_MS  = 60 * 1000;  /* 60s — must be unfocused this long to count as a lapse */
+var HEARTBEAT_DISCONNECT_MS   = 45 * 1000;  /* 45s — no heartbeat = disconnected */
 
 /**
- * Compute participation rate for a student.
- *
- * Participation rate = correct responses ÷ prompts issued while present
- *
- * "While present" means the prompt was issued between the student's
- * JoinTime and LeaveTime (or now, if still connected).
- *
- * @param {string} studentName — Canonical or raw name
- * @param {Object[]} sessions — Student's sessions [{ JoinTime, LeaveTime }]
- * @param {Object[]} allPrompts — All ChatPrompts [{ PromptID, IssuedAt }]
- * @param {Object[]} studentResponses — This student's ChatResponses
- *   [{ PromptID, Matched }]
- * @returns {number} — Integer 0–100
- */
-function computeParticipation(sessions, allPrompts, studentResponses) {
-  if (!allPrompts || allPrompts.length === 0) return 0;
-  if (!sessions || sessions.length === 0) return 0;
-
-  /* Determine which prompts were issued while this student was present */
-  let eligiblePrompts = 0;
-  let correctResponses = 0;
-
-  for (const prompt of allPrompts) {
-    const issuedAt = new Date(prompt.IssuedAt).getTime();
-
-    /* Check if the student was present (in any session) when this prompt was issued */
-    const wasPresent = sessions.some(session => {
-      const joinTime = new Date(session.JoinTime).getTime();
-      const leaveTime = session.LeaveTime
-        ? new Date(session.LeaveTime).getTime()
-        : Date.now();
-      return issuedAt >= joinTime && issuedAt <= leaveTime;
-    });
-
-    if (wasPresent) {
-      eligiblePrompts++;
-
-      /* Check if this student has a correct response to this prompt */
-      const hasCorrect = studentResponses.some(
-        r => r.PromptID === prompt.PromptID && r.Matched === true
-      );
-      if (hasCorrect) {
-        correctResponses++;
-      }
-    }
-  }
-
-  if (eligiblePrompts === 0) return 0;
-
-  const pct = Math.round((correctResponses / eligiblePrompts) * 100);
-  return Math.max(0, Math.min(100, pct));
-}
-
-/**
- * Determine a student's current status based on their latest session
+ * Determine a student's current live status based on their latest session
  * and focus events.
  *
  * @param {Object|null} latestSession — Most recent session or null
  * @param {Object[]} focusEvents — Focus events for the latest session
- * @returns {string} — 'not_joined' | 'focused' | 'unfocused'
+ * @returns {string} — 'not_joined' | 'on_meet' | 'away'
  */
 function determineStatus(latestSession, focusEvents) {
   if (!latestSession || !latestSession.JoinTime) {
@@ -147,8 +31,178 @@ function determineStatus(latestSession, focusEvents) {
     .sort((a, b) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime());
 
   if (sorted.length > 0 && sorted[0].Type === 'lost') {
-    return 'unfocused';
+    return 'away';
   }
 
-  return 'focused';
+  return 'on_meet';
+}
+
+/**
+ * Compute focus lapses for a student.
+ *
+ * A "lapse" is a focus_lost → focus_regained pair (or lost → session end)
+ * whose duration exceeds FOCUS_LAPSE_THRESHOLD_MS.
+ * Brief tab flicks under the threshold are ignored entirely.
+ *
+ * @param {Object} session — { JoinTime, LeaveTime }
+ * @param {Object[]} focusEvents — { Type: 'lost'|'regained', Timestamp }
+ * @returns {{ count: number, totalSeconds: number, lapses: Array }}
+ */
+function computeFocusLapses(session, focusEvents) {
+  if (!session || !session.JoinTime) {
+    return { count: 0, totalSeconds: 0, lapses: [] };
+  }
+
+  const endTime = session.LeaveTime
+    ? new Date(session.LeaveTime).getTime()
+    : Date.now();
+
+  /* Sort chronologically */
+  const events = focusEvents
+    .filter(e => e.Timestamp)
+    .map(e => ({ type: e.Type, time: new Date(e.Timestamp).getTime() }))
+    .sort((a, b) => a.time - b.time);
+
+  const lapses = [];
+  let lostAt = null;
+
+  for (const evt of events) {
+    if (evt.type === 'lost' && lostAt === null) {
+      lostAt = evt.time;
+    } else if (evt.type === 'regained' && lostAt !== null) {
+      const durationMs = evt.time - lostAt;
+      if (durationMs >= FOCUS_LAPSE_THRESHOLD_MS) {
+        lapses.push({
+          startedAt: new Date(lostAt).toISOString(),
+          durationSeconds: Math.round(durationMs / 1000)
+        });
+      }
+      lostAt = null;
+    }
+  }
+
+  /* If still unfocused at session end, that's also a lapse */
+  if (lostAt !== null) {
+    const durationMs = endTime - lostAt;
+    if (durationMs >= FOCUS_LAPSE_THRESHOLD_MS) {
+      lapses.push({
+        startedAt: new Date(lostAt).toISOString(),
+        durationSeconds: Math.round(durationMs / 1000)
+      });
+    }
+  }
+
+  const totalSeconds = lapses.reduce((sum, l) => sum + l.durationSeconds, 0);
+
+  return { count: lapses.length, totalSeconds, lapses };
+}
+
+/**
+ * Compute participation for a student.
+ * Returns { answered, issued } counts for the detail view.
+ *
+ * @param {Object[]} sessions — Student's sessions [{ JoinTime, LeaveTime }]
+ * @param {Object[]} allPrompts — All ChatPrompts [{ PromptID, IssuedAt }]
+ * @param {Object[]} studentResponses — This student's ChatResponses
+ * @returns {{ answered: number, issued: number, rate: number }}
+ */
+function computeParticipation(sessions, allPrompts, studentResponses) {
+  if (!allPrompts || allPrompts.length === 0) return { answered: 0, issued: 0, rate: 0 };
+  if (!sessions || sessions.length === 0) return { answered: 0, issued: 0, rate: 0 };
+
+  let issued = 0;
+  let answered = 0;
+
+  for (const prompt of allPrompts) {
+    const issuedAt = new Date(prompt.IssuedAt).getTime();
+
+    const wasPresent = sessions.some(session => {
+      const joinTime = new Date(session.JoinTime).getTime();
+      const leaveTime = session.LeaveTime
+        ? new Date(session.LeaveTime).getTime()
+        : Date.now();
+      return issuedAt >= joinTime && issuedAt <= leaveTime;
+    });
+
+    if (wasPresent) {
+      issued++;
+      const hasCorrect = studentResponses.some(
+        r => r.PromptID === prompt.PromptID && r.Matched === true
+      );
+      if (hasCorrect) answered++;
+    }
+  }
+
+  const rate = issued > 0 ? Math.round((answered / issued) * 100) : 0;
+  return { answered, issued, rate };
+}
+
+/**
+ * Compute active alerts for a single student.
+ * Returns an array of alert type strings (empty if none).
+ *
+ * Alert types:
+ *   'sustained_unfocus'   — unfocused continuously > FOCUS_LAPSE_THRESHOLD_MS
+ *   'missing_extension'   — no heartbeat for > HEARTBEAT_DISCONNECT_MS while joined
+ *   'unanswered_prompt'   — active prompt with no matched response from this student
+ *
+ * @param {Object} student — { name, liveStatus }
+ * @param {Object|null} latestSession — { JoinTime, LeaveTime }
+ * @param {Object[]} sessionFocusEvents — Focus events for the current session
+ * @param {Object|null} heartbeatRow — { LastHeartbeatAt } or null
+ * @param {Object|null} activePrompt — The active prompt object or null
+ * @param {Object[]} studentResponses — This student's ChatResponses
+ * @returns {string[]}
+ */
+function computeActiveAlerts(student, latestSession, sessionFocusEvents, heartbeatRow, activePrompt, studentResponses) {
+  const alerts = [];
+  const now = Date.now();
+
+  /* Only compute alerts for joined students */
+  if (student.liveStatus === 'not_joined') return alerts;
+
+  /* ── Sustained unfocus ── */
+  if (student.liveStatus === 'away') {
+    /* Find the most recent unresolved focus_lost */
+    const sorted = sessionFocusEvents
+      .filter(e => e.Timestamp)
+      .sort((a, b) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime());
+
+    const latestLost = sorted.find(e => e.Type === 'lost');
+    if (latestLost) {
+      const lostMs = now - new Date(latestLost.Timestamp).getTime();
+      if (lostMs >= FOCUS_LAPSE_THRESHOLD_MS) {
+        alerts.push('sustained_unfocus');
+      }
+    }
+  }
+
+  /* ── Missing extension heartbeat ── */
+  if (!heartbeatRow || !heartbeatRow.LastHeartbeatAt) {
+    alerts.push('missing_extension');
+  } else {
+    const lastBeat = new Date(heartbeatRow.LastHeartbeatAt).getTime();
+    if (now - lastBeat > HEARTBEAT_DISCONNECT_MS) {
+      alerts.push('missing_extension');
+    }
+  }
+
+  /* ── Unanswered prompt ── */
+  if (activePrompt) {
+    /* Only alert if the prompt window has actually closed */
+    const promptExpired = activePrompt.ExpiresAt
+      ? new Date(activePrompt.ExpiresAt).getTime() < now
+      : false;
+
+    if (promptExpired) {
+      const hasResponse = studentResponses.some(
+        r => r.PromptID === activePrompt.PromptID && r.Matched === true
+      );
+      if (!hasResponse) {
+        alerts.push('unanswered_prompt');
+      }
+    }
+  }
+
+  return alerts;
 }

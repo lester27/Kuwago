@@ -50,6 +50,13 @@
               <span class="nav-item__label">Live roster</span>
             </a>
 
+            <a class="nav-item" id="nav-health" role="button" tabindex="0">
+              <svg class="nav-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              <span class="nav-item__label">Extension Health</span>
+            </a>
+
             <a class="nav-item" id="nav-unmatched" role="button" tabindex="0">
               <svg class="nav-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -99,8 +106,8 @@
 
           <div class="topbar__actions">
             <div class="professor-info">
-              <div class="avatar">JP</div>
-              <span class="professor-name">Prof. Panganiban</span>
+              <div class="avatar">P</div>
+              <span class="professor-name">Professor</span>
             </div>
           </div>
         </header>
@@ -129,6 +136,33 @@
                 <polyline points="12 6 12 12 16 14" />
               </svg>
               <span id="last-updated">Updated 0s ago</span>
+            </div>
+          </div>
+
+          <!-- Session Control Bar -->
+          <div class="session-control" id="session-control">
+            <div class="session-control__left">
+              <label class="session-control__label" for="course-selector">Course</label>
+              <select class="session-control__select" id="course-selector">
+                <option value="" disabled selected>Loading courses…</option>
+              </select>
+            </div>
+            <div class="session-control__right">
+              <button class="btn btn--start" id="btn-start-class" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                Start Class
+              </button>
+              <button class="btn btn--end btn--hidden" id="btn-end-class" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+                End Class
+              </button>
+              <div class="session-timer" id="session-timer-wrapper">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span id="session-timer">0:00:00</span>
+              </div>
             </div>
           </div>
 
@@ -169,8 +203,8 @@
               <span class="section-label">Live Roster</span>
               <div class="table-filters">
                 <button class="filter-btn filter-btn--active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="focused">Focused</button>
-                <button class="filter-btn" data-filter="unfocused">Unfocused</button>
+                <button class="filter-btn" data-filter="on_meet">On Meet tab</button>
+                <button class="filter-btn" data-filter="away">Away</button>
                 <button class="filter-btn" data-filter="not_joined">Not joined</button>
               </div>
             </div>
@@ -179,10 +213,9 @@
               <thead>
                 <tr>
                   <th class="sortable" data-sort="name">Student</th>
-                  <th class="sortable" data-sort="status">Status</th>
-                  <th class="sortable" data-sort="lastActivity">Last Activity</th>
-                  <th class="sortable" data-sort="attentiveness">Attentiveness</th>
-                  <th class="sortable" data-sort="participation">Participation</th>
+                  <th class="sortable" data-sort="liveStatus">Status</th>
+                  <th>Attendance</th>
+                  <th>Alerts</th>
                 </tr>
               </thead>
               <tbody id="roster-body">
@@ -215,9 +248,7 @@
                 <tr>
                   <th>Display Name</th>
                   <th>Status</th>
-                  <th>Last Activity</th>
-                  <th>Attentiveness</th>
-                  <th>Participation</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="unmatched-body">
@@ -231,6 +262,39 @@
                 <polyline points="22 4 12 14.01 9 11.01" />
               </svg>
               <p>No unmatched entries. All activity matched to roster.</p>
+            </div>
+          </div>
+
+          <!-- ── Extension Health Table ──────────────── -->
+          <div class="table-container" id="view-health" hidden>
+            <div class="table-header">
+              <div>
+                <span class="eyebrow">Extension Health</span>
+                <p class="table-description">Connection status of each student's Chrome extension. Heartbeat-based monitoring.</p>
+              </div>
+            </div>
+
+            <table class="data-table" id="health-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Connected</th>
+                  <th>Detected Name</th>
+                  <th>Version</th>
+                  <th>Last Heartbeat</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="health-body">
+                <!-- Rendered by JS -->
+              </tbody>
+            </table>
+
+            <div class="empty-state" id="health-empty" hidden>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+              <p>No extension health data yet. Start a session to begin monitoring.</p>
             </div>
           </div>
 
@@ -330,7 +394,143 @@
     </div>
   </div>
 
+  <!-- ── Student Detail Overlay ────────────────────────── -->
+  <div class="modal-overlay" id="student-detail-modal">
+    <div class="modal modal--large">
+      <div class="modal__header">
+        <h2 class="modal__title" id="sd-name">Student Name</h2>
+        <button class="modal__close" id="sd-close-btn" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="modal__body" id="sd-loading">
+        <div class="loading-spinner"></div>
+        <p>Loading student data...</p>
+      </div>
+      <div class="modal__body sd-grid" id="sd-content" hidden>
+        <div class="sd-col">
+          <div class="sd-section">
+            <div class="sd-section__title">Status</div>
+            <div class="sd-value" id="sd-live-status">On Meet tab</div>
+            <div class="sd-subtext" id="sd-session-times">Joined at 9:00 AM</div>
+          </div>
+          
+          <div class="sd-section">
+            <div class="sd-section__title">Attendance</div>
+            <div class="sd-value" id="sd-attendance-status">Present</div>
+            <ul class="sd-list" id="sd-attendance-history"></ul>
+          </div>
+          
+          <div class="sd-section">
+            <div class="sd-section__title">Extension Health & Identity</div>
+            <div class="sd-value" id="sd-health-connected">Connected</div>
+            <div class="sd-subtext" id="sd-health-details">Version 1.2.0 • Last heartbeat: just now</div>
+            <div class="sd-subtext mt-2" id="sd-identity-match">Matched to roster</div>
+          </div>
+        </div>
+        
+        <div class="sd-col">
+          <div class="sd-section">
+            <div class="sd-section__title">Focus Lapses</div>
+            <div class="sd-value" id="sd-focus-summary">No focus lapses</div>
+            <ul class="sd-list" id="sd-focus-list"></ul>
+          </div>
+          
+          <div class="sd-section">
+            <div class="sd-section__title">Participation</div>
+            <div class="sd-value" id="sd-participation-summary">0 / 0 prompts answered</div>
+            <ul class="sd-list" id="sd-participation-list"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts (ES Modules) -->
+  <!-- ════════════════════════════════════════════════════
+       ATTENDANCE OVERRIDE MODAL
+       ════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="attendance-modal">
+    <div class="modal">
+      <div class="modal__header">
+        <h2>Override Attendance</h2>
+        <button class="icon-btn" id="btn-close-attendance-modal" aria-label="Close modal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <p class="form-hint" style="margin-top:0; margin-bottom: var(--space-4);">
+          Updating attendance for <strong id="override-student-name">...</strong>
+        </p>
+
+        <div class="form-group">
+          <label for="override-status">New Status</label>
+          <select id="override-status">
+            <option value="Present">Present</option>
+            <option value="Late">Late</option>
+            <option value="Absent">Absent</option>
+            <option value="Excused">Excused</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="override-reason">Reason (Optional)</label>
+          <input type="text" id="override-reason" placeholder="e.g., Doctor's appointment, Network issues" maxlength="200" />
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" id="btn-cancel-override">Cancel</button>
+        <button class="btn btn--primary" id="btn-save-override">Save Override</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- SESSION SUMMARY MODAL -->
+  <div class="modal-overlay" id="session-summary-modal">
+    <div class="modal modal--xl">
+      <div class="modal__header">
+        <div>
+          <h2 class="modal__title">Session Summary</h2>
+          <p class="modal__subtitle" id="ss-sheet-name" style="font-size:12px;color:var(--zinc-400);margin-top:2px;font-family:monospace;"></p>
+        </div>
+        <button class="modal__close" id="ss-close-btn" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body ss-body">
+        <p class="ss-hint">This session has ended. The data below has been saved to your Google Sheet as <strong id="ss-sheet-name-inline"></strong>.</p>
+        <div class="ss-table-wrap">
+          <table class="ss-table" id="ss-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th>Attendance</th>
+                <th>Focus Lapses</th>
+                <th>Away</th>
+                <th>Attentiveness</th>
+                <th>Prompts</th>
+                <th>Participation</th>
+              </tr>
+            </thead>
+            <tbody id="ss-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" id="ss-close-footer-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

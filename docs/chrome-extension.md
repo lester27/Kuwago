@@ -1,126 +1,111 @@
-# Chrome Extension
+# Chrome Extension Guide
 
-The `chrome-extension/` folder contains a Manifest V3 Chrome extension that
-runs in each **student's** browser during a Google Meet session.
+The `chrome-extension/` directory contains a Manifest V3 browser extension designed to run in each student's browser during a Google Meet session.
 
 ---
 
-## What it does
+## Architectural Responsibilities
 
-| Responsibility | Implementation |
+| Responsibility | Implementation Mechanism |
 |---|---|
-| Detect student's own name | Reads the self-participant tile in Meet's DOM |
-| Detect tab focus / blur | `chrome.tabs.onActivated` + `chrome.windows.onFocusChanged` |
-| Detect join / leave | Content script load on Meet + tab close / navigation away |
-| Capture chat messages | `MutationObserver` on Meet's chat panel |
-| Poll for active prompt | Background worker polls `currentPrompt` every ~5–10 s |
+| **Self-Name Detection** | `content.js` inspects Google Meet's DOM participant elements with fallback selector heuristics. |
+| **Tab & Window Focus Tracking** | `background.js` combines `chrome.tabs.onActivated` and `chrome.windows.onFocusChanged` with a 1.5-second debounce. |
+| **Health Heartbeats** | Periodic 15-second beacon (`POST ?action=heartbeat`) reporting extension vitality and version. |
+| **Session Join & Leave** | Content script initialization fires `join`; tab close/navigation fires `leave`. |
+| **Prompt Polling & Interception** | Background worker polls `currentPrompt` every ~7 seconds; `MutationObserver` in `content.js` captures chat messages. |
 
 ---
 
-## Files
+## Directory Structure
 
 ```
 chrome-extension/
-├── manifest.json     # MV3 manifest
-├── content.js        # Injected into every meet.google.com page
-├── background.js     # Service worker (persistent background logic)
-├── popup.html        # Toolbar icon popup
-├── popup.js          # Popup controller
-└── icons/
-    ├── icon16.png
-    ├── icon48.png
-    └── icon128.png
+├── manifest.json       # MV3 permissions, host permissions, and scripts
+├── content.js          # Injected into meet.google.com DOM
+├── background.js       # Background service worker (heartbeats, focus, API)
+├── popup.html          # Toolbar popup UI
+├── popup.js            # Toolbar popup logic
+└── icons/              # Extension icon assets (16x16, 48x48, 128x128)
 ```
 
 ---
 
-## Permissions
+## How Focus Tracking Works
 
-| Permission | Why it's needed |
+To prevent false alarms caused by quick window clicks, Alt-Tab glances, or OS notifications, Kuwago utilizes a dual-signal debouncing algorithm:
+
+```
+[Tab Activation Event]   ──┐
+                           ├─► Debounce Window (1,500ms) ─► Agreement Check ─► Dispatch Event
+[Window Focus Event]     ──┘
+```
+
+1. **State Aggregation**: The background service worker listens to both `chrome.tabs.onActivated` (tab switches) and `chrome.windows.onFocusChanged` (app/window switches).
+2. **Debounce Buffer**: When focus changes away from the active Google Meet tab, an event is scheduled with a 1,500ms delay.
+3. **Cancellation**: If the student returns to the Meet tab within 1,500ms, the pending `focus_lost` event is cancelled and discarded.
+4. **Dispatch**: If the student remains away, a `focus_lost` event is dispatched to the backend.
+
+---
+
+## Heartbeat Health Engine
+
+To differentiate between a student who simply closed their tab and a student whose extension crashed or was disabled:
+- Every 15 seconds, `background.js` pulses a health check to the Apps Script endpoint:
+  ```json
+  {
+    "action": "heartbeat",
+    "studentName": "Juan Dela Cruz",
+    "detectedName": "Juan Dela Cruz",
+    "version": "2.0.0"
+  }
+  ```
+- The backend writes this to the `Heartbeats` sheet tab (one row per student, continuously overwritten).
+- If the professor dashboard detects no heartbeat from an active student for longer than the alert threshold, a **Disconnected** warning is raised.
+
+---
+
+## Google Meet DOM Name Detection
+
+The content script reads the student's name directly from the Google Meet user interface without requiring Google OAuth identity scopes:
+
+1. **Selector Fallbacks**: The script queries participant self-tiles using standard attributes, `data-self-name`, and aria-labels.
+2. **Normalization**: Names are cleaned, stripped of "(You)" or "(Presentation)" suffixes, and trimmed.
+3. **Periodic Validation**: Detection runs on a periodic cycle to accommodate dynamic DOM mutations during Google Meet loading.
+4. **Identity Binding**: If a student's Google account name differs from their enrolled roster name (e.g. `Johnny D.` vs. `Dela Cruz, Juan`), the professor can bind the alias directly from the dashboard using **Resolve Match**.
+
+---
+
+## Permissions Rationale
+
+| Permission | Justification |
 |---|---|
-| `activeTab` | Inject the content script into the active Meet tab |
-| `scripting` | Run content script programmatically |
-| `tabs` | Detect tab focus changes in the background worker |
-| `host_permissions: meet.google.com` | Content script runs on Meet pages |
-| `host_permissions: script.google.com` | API calls to the Apps Script backend |
+| `activeTab` | Injects content script upon navigating to Google Meet. |
+| `scripting` | Enables programmatic DOM observation on Meet tabs. |
+| `tabs` | Allows background service worker to detect tab switching. |
+| `host_permissions: https://meet.google.com/*` | Grants execution rights on all Google Meet rooms. |
+| `host_permissions: https://script.google.com/*` | Authorizes background API calls to Apps Script without CORS preflight restrictions. |
 
-**No `identity` permission is used.** The student's name is read directly from
-Meet's page DOM — no OAuth flow required.
-
----
-
-## How name detection works
-
-The content script looks for the student's own name in Meet's participant UI.
-Because Meet's DOM structure is undocumented and can change, the content script:
-
-1. Tries multiple CSS selector strategies in priority order.
-2. Re-runs detection on every poll cycle (not just once on load) — so a
-   temporary DOM miss self-corrects next time.
-3. Caches the name once found to avoid thrashing.
-
-> ⚠️ **Maintenance note:** If Google updates Meet's UI, selectors may need
-> updating. This is the main ongoing maintenance risk.
+*Note: Kuwago strictly adheres to privacy standards. The extension does not record video, microphone streams, or browse history outside `meet.google.com`.*
 
 ---
 
-## How chat detection works
+## Configuration & Installation
 
-A `MutationObserver` watches the chat panel for new messages. When the student
-sends a message, the raw text is forwarded to `submitChat`. The server does the
-phrase matching — the extension sends everything.
+### 1. Configure the API URL
+In `background.js` (line 17), set the `API_BASE` to your deployed Apps Script URL:
+```javascript
+const API_BASE = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+```
 
----
+### 2. Install Unpacked Extension
+1. Open Google Chrome and go to `chrome://extensions`.
+2. Enable **Developer mode** (top-right toggle).
+3. Click **Load unpacked** (top-left).
+4. Select the `chrome-extension/` directory.
 
-## How focus tracking works
-
-The background service worker combines two signals:
-
-1. `chrome.tabs.onActivated` — fires when the user switches tabs
-2. `chrome.windows.onFocusChanged` — fires when the browser window loses focus
-
-A `focus_lost` event is fired only after **both** signals agree the Meet tab is
-backgrounded, with a short debounce to suppress sub-second flickers (e.g.
-clicking between windows quickly).
-
----
-
-## Installing the extension (developer / manual install)
-
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked**
-4. Select the `chrome-extension/` folder from this repository
-5. The **Classroom Monitor** extension will appear in your extensions list
-6. It activates automatically whenever you open `meet.google.com`
-
-> The extension icon will appear in your Chrome toolbar. Clicking it shows a
-> small popup with connection status.
-
----
-
-## Student setup instructions
-
-Students need to:
-
-1. Install the extension (professor distributes / loads unpacked)
-2. **Set their Google Meet display name** to the exact format:
-   ```
-   LastName, FirstName, M.I.
-   ```
-   Example: `Santos, Maria B.`
-
-   To rename in Meet: click the three-dot menu on your own tile → **Change name**
-
-If a student's name doesn't match the roster, their data will appear in the
-**Unmatched** section of the dashboard rather than their roster row.
-
----
-
-## Known limitations
-
-- **Meet DOM fragility** — name detection and chat detection rely on Meet's
-  unofficial DOM. Google can change this without notice.
-- **No cross-device tracking** — a student on two devices creates two sessions.
-- **No content monitoring** — only the _fact_ that focus was lost is tracked,
-  never which website the student switched to.
+### 3. Reloading After Code Changes
+When you update `background.js` or `content.js`:
+1. Return to `chrome://extensions`.
+2. Locate **Kuwago Classroom Monitor**.
+3. Click the **↻ (Reload)** button.
+4. Refresh any active Google Meet tabs.

@@ -1,6 +1,7 @@
 const fs = require('fs');
+const path = require('path');
 const zlib = require('zlib');
-const iconDir = 'c:\\Users\\PANGANIBAN\\Documents\\Professor Dashboard\\chrome-extension\\icons';
+const iconDir = __dirname;
 
 function writePNG(width, height, pixelFn) {
   const ihdr = Buffer.alloc(13);

@@ -1,89 +1,288 @@
 # API Reference
 
-All API calls go to the Apps Script Web App URL (`API_BASE` in `js/api.js`).
-All requests use **GET** to work around Apps Script's CORS redirect issue with
-POST from a cross-origin page.
+All API communications route through the Google Apps Script Web App URL (`API_BASE` in `js/api.js` and `chrome-extension/background.js`).
+
+### Request Conventions:
+- **CORS Handling**: Because browsers restrict cross-origin POST requests with custom headers against Google Apps Script redirects, the dashboard uses `GET` requests for polling and query actions, and sends `POST` requests with `Content-Type: text/plain` (avoiding preflight) or query-string fallbacks.
+- **Chrome Extension**: The extension has `host_permissions` declared for `script.google.com`, permitting direct `POST` requests without CORS restrictions.
 
 ---
 
-## Endpoints
+## 1. Class-Session Management
+
+### `GET ?action=getCourses`
+Returns all available academic courses and sections defined in the `Courses` spreadsheet tab.
+
+**Response:**
+```json
+{
+  "success": true,
+  "courses": [
+    {
+      "sectionId": "BSIT301-A",
+      "courseName": "IT Capstone Project",
+      "sectionName": "Section A"
+    },
+    {
+      "sectionId": "BSIT301-B",
+      "courseName": "IT Capstone Project",
+      "sectionName": "Section B"
+    }
+  ]
+}
+```
+
+---
+
+### `GET ?action=getSessionState`
+Returns the currently active class session (if any). Queried by the dashboard upon page load or reconnect.
+
+**Response (Session Active):**
+```json
+{
+  "sessionActive": true,
+  "sessionId": "sess-1726027200000",
+  "sectionId": "BSIT301-A",
+  "courseName": "IT Capstone Project",
+  "startedAt": "2026-09-11T08:00:00.000Z"
+}
+```
+
+**Response (No Active Session):**
+```json
+{
+  "sessionActive": false
+}
+```
+
+---
+
+### `POST ?action=startSession`
+Activates a new class session for the specified section. Rejects if a session is already in progress.
+
+**Payload:**
+```json
+{
+  "sectionId": "BSIT301-A"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "sessionId": "sess-1726027200000",
+  "sectionId": "BSIT301-A",
+  "startedAt": "2026-09-11T08:00:00.000Z",
+  "rosterCount": 35
+}
+```
+
+---
+
+### `POST ?action=endSession`
+Concludes the active session. Closes open student sessions, evaluates final attendance and participation, generates the permanent `Session_YYYY-MM-DD_SectionID` sheet tab, and marks the session closed.
+
+**Payload:**
+```json
+{
+  "sessionId": "sess-1726027200000"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "sessionId": "sess-1726027200000",
+  "sheetName": "Session_2026-09-11_BSIT301-A",
+  "summary": {
+    "totalEnrolled": 35,
+    "present": 30,
+    "late": 3,
+    "absent": 2,
+    "excused": 0,
+    "averageParticipation": 88.5,
+    "totalFocusLapses": 14
+  }
+}
+```
+
+---
+
+## 2. Real-Time Roster & Analytics
 
 ### `GET ?action=dashboardData`
-
-Returns the full aggregated state for the professor dashboard. Called every
-~5 seconds.
+Returns the high-priority state for the professor dashboard. Polled every ~5 seconds during an active session. Stripped of heavy telemetry logs to maintain instantaneous rendering.
 
 **Response:**
 ```json
 {
   "sessionActive": true,
+  "sessionId": "sess-1726027200000",
+  "sectionId": "BSIT301-A",
   "activePrompt": {
-    "phrase": "this word",
-    "issuedAt": "2026-09-08T09:15:00Z",
-    "expiresAt": "2026-09-08T09:16:00Z",
-    "responsesReceived": 27,
-    "rosterCount": 38
+    "promptId": "prompt-1",
+    "phrase": "matrix",
+    "issuedAt": "2026-09-11T08:15:00.000Z",
+    "expiresAt": "2026-09-11T08:16:00.000Z",
+    "responsesReceived": 28,
+    "rosterCount": 35
   },
   "students": [
     {
       "name": "Dela Cruz, Juan A.",
-      "status": "focused",
-      "joinedAt": "2026-09-08T09:00:12Z",
-      "lastActivityAt": "2026-09-08T09:14:55Z",
-      "attentivenessPct": 92,
-      "participationRate": 85,
+      "liveStatus": "on_meet",
+      "attendanceStatus": "present",
+      "activeAlerts": [],
       "matched": true
     },
     {
-      "name": "J. delacruz",
-      "status": "focused",
-      "joinedAt": "2026-09-08T09:01:03Z",
-      "lastActivityAt": "2026-09-08T09:14:40Z",
-      "attentivenessPct": 88,
-      "participationRate": 60,
+      "name": "Santos, Maria C.",
+      "liveStatus": "away",
+      "attendanceStatus": "late",
+      "activeAlerts": ["sustained_unfocus"],
+      "matched": true
+    },
+    {
+      "name": "john_doe99",
+      "liveStatus": "on_meet",
+      "attendanceStatus": "present",
+      "activeAlerts": ["unmatched_name"],
       "matched": false
     }
   ]
 }
 ```
 
-**Fields:**
-
-| Field | Type | Description |
+#### Student Fields:
+| Field | Type | Values / Description |
 |---|---|---|
-| `sessionActive` | boolean | Whether any student has joined in this session |
-| `activePrompt` | object \| null | Active chat prompt, or null if none |
-| `activePrompt.phrase` | string | The expected chat phrase |
-| `activePrompt.issuedAt` | ISO 8601 | When the prompt was set |
-| `activePrompt.expiresAt` | ISO 8601 | When the prompt expires |
-| `activePrompt.responsesReceived` | number | Matched responses so far |
-| `activePrompt.rosterCount` | number | Total roster size |
-| `students[]` | array | One entry per student (roster + unmatched) |
-| `students[].name` | string | Display name (canonical if matched, raw if not) |
-| `students[].status` | string | `not_joined` \| `focused` \| `unfocused` |
-| `students[].joinedAt` | ISO 8601 \| null | Join timestamp, null if not joined |
-| `students[].lastActivityAt` | ISO 8601 \| null | Most recent event timestamp |
-| `students[].attentivenessPct` | number | 0–100, focused time ÷ session time |
-| `students[].participationRate` | number | 0–100, prompts answered ÷ prompts issued while present |
-| `students[].matched` | boolean | Whether name matched a roster entry |
+| `name` | string | Canonical roster name, or raw Meet name if unmatched |
+| `liveStatus` | string | `"not_joined"` \| `"on_meet"` \| `"away"` |
+| `attendanceStatus` | string | `"present"` \| `"late"` \| `"absent"` \| `"excused"` |
+| `activeAlerts` | string[] | Array of active flags: `"sustained_unfocus"`, `"disconnected"`, `"unanswered_prompt"`, `"unmatched_name"` |
+| `matched` | boolean | Whether the student's Meet identity matches the enrolled roster |
 
 ---
 
-### `GET ?action=currentPrompt`
+### `GET ?action=studentDetail&sessionId=...&studentName=...`
+Returns complete telemetry, focus lapse logs, and prompt participation records for a single student. Lazy-loaded when opening the Student Detail Modal.
 
-Returns only the currently active prompt. Used by the Chrome extension
-(polling every ~5–10 s) to know what phrase students should type.
-
-**Response (active prompt):**
+**Response:**
 ```json
 {
-  "active": true,
-  "phrase": "this word",
-  "expiresAt": "2026-09-08T09:16:00Z"
+  "name": "Dela Cruz, Juan A.",
+  "liveStatus": "on_meet",
+  "joinedAt": "2026-09-11T08:02:15.000Z",
+  "leftAt": null,
+  "attendance": {
+    "status": "present",
+    "overrides": [
+      {
+        "from": "late",
+        "to": "present",
+        "reason": "Traffic / ISP lag verified",
+        "timestamp": "2026-09-11T08:10:00.000Z"
+      }
+    ]
+  },
+  "focusLapses": {
+    "count": 2,
+    "totalSeconds": 180,
+    "lapses": [
+      { "startedAt": "2026-09-11T08:14:00.000Z", "durationSeconds": 60 },
+      { "startedAt": "2026-09-11T08:25:00.000Z", "durationSeconds": 120 }
+    ]
+  },
+  "participation": {
+    "answered": 2,
+    "issued": 2,
+    "responses": [
+      {
+        "promptId": "prompt-1",
+        "phrase": "matrix",
+        "submittedText": "matrix",
+        "matched": true,
+        "timestamp": "2026-09-11T08:15:20.000Z"
+      }
+    ]
+  },
+  "extension": {
+    "connected": true,
+    "version": "2.0.0",
+    "lastHeartbeatAt": "2026-09-11T08:30:10.000Z",
+    "detectedName": "Juan Dela Cruz"
+  },
+  "matched": true
 }
 ```
 
-**Response (no active prompt):**
+---
+
+## 3. Attendance & Identity Operations
+
+### `POST ?action=overrideAttendance`
+Records a manual attendance status override for a student during the active session.
+
+**Payload:**
+```json
+{
+  "sessionId": "sess-1726027200000",
+  "studentName": "Dela Cruz, Juan A.",
+  "newStatus": "excused",
+  "reason": "Medical appointment certificate submitted"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "studentName": "Dela Cruz, Juan A.",
+  "status": "excused"
+}
+```
+
+---
+
+### `POST ?action=resolveMatch`
+Binds an unrecognized Meet display name to an enrolled roster student. Updates canonical identity and removes temporary ghost rows.
+
+**Payload:**
+```json
+{
+  "rawName": "john_doe99",
+  "canonicalName": "Dela Cruz, Juan A."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "rawName": "john_doe99",
+  "canonicalName": "Dela Cruz, Juan A."
+}
+```
+
+---
+
+## 4. Verification Prompts
+
+### `GET ?action=currentPrompt`
+Polled by student Chrome extensions every ~7 seconds. Returns the active prompt phrase if within its validity window.
+
+**Response (Active):**
+```json
+{
+  "active": true,
+  "phrase": "matrix",
+  "expiresAt": "2026-09-11T08:16:00.000Z"
+}
+```
+
+**Response (Inactive):**
 ```json
 {
   "active": false
@@ -92,91 +291,74 @@ Returns only the currently active prompt. Used by the Chrome extension
 
 ---
 
-### `GET ?action=setPrompt&phrase=...&durationSeconds=...`
+### `POST ?action=setPrompt`
+Broadcasts a new verification prompt. Deactivates any previously open prompt.
 
-Sets a new active chat prompt. Any currently active prompt is immediately
-expired. Only one prompt can be active at a time.
-
-**Query parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `phrase` | string | Yes | The expected phrase students should type |
-| `durationSeconds` | integer | No (default: 60) | How long the prompt stays active |
+**Payload:**
+```json
+{
+  "phrase": "matrix",
+  "durationSeconds": 60
+}
+```
 
 **Response:**
 ```json
-{ "success": true }
+{
+  "success": true,
+  "promptId": "prompt-1",
+  "phrase": "matrix",
+  "expiresAt": "2026-09-11T08:16:00.000Z"
+}
 ```
 
 ---
 
-### `GET ?action=logEvent&studentName=...&type=...`
+## 5. Chrome Extension Telemetry
 
-Records a student lifecycle event.
+### `POST ?action=heartbeat`
+Pulsed by the Chrome extension every 15 seconds to report client vitality.
 
-**Query parameters:**
+**Payload:**
+```json
+{
+  "studentName": "Juan Dela Cruz",
+  "detectedName": "Juan Dela Cruz",
+  "version": "2.0.0"
+}
+```
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `studentName` | string | Yes | Student's Meet display name |
-| `type` | string | Yes | `join` \| `leave` \| `focus_lost` \| `focus_regained` |
+---
+
+### `POST ?action=logEvent`
+Dispatches lifecycle and focus events from the student browser.
+
+**Payload:**
+```json
+{
+  "type": "focus_lost",
+  "studentName": "Juan Dela Cruz",
+  "sessionId": "sess-1726027200000"
+}
+```
+*Supported `type` values: `"join"`, `"leave"`, `"focus_lost"`, `"focus_regained"`.*
+
+---
+
+### `POST ?action=submitChat`
+Transmits raw chat messages intercepted in Google Meet for server-side evaluation.
+
+**Payload:**
+```json
+{
+  "studentName": "Juan Dela Cruz",
+  "text": "matrix"
+}
+```
 
 **Response:**
 ```json
-{ "success": true }
+{
+  "matched": true
+}
 ```
-
-**Notes:**
-- The backend normalizes `studentName` (trim, lowercase, collapse whitespace)
-  before matching against the roster.
-- Events are always logged, even if the name doesn't match a roster entry
-  (`matched = false`).
-
----
-
-### `GET ?action=submitChat&studentName=...&text=...`
-
-Submits a student's raw chat message for prompt matching.
-
-**Query parameters:**
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `studentName` | string | Yes | Student's Meet display name |
-| `text` | string | Yes | Raw chat text as typed |
-
-**Response:**
-```json
-{ "success": true, "matched": true }
-```
-
-**Matching logic:**
-Both the active prompt phrase and the submitted text are normalized (trim,
-lowercase, collapse whitespace) before comparison. Only compared against the
-currently active, non-expired prompt.
-
----
-
-## Error responses
-
-All endpoints return HTTP 200 even on application errors (Apps Script
-limitation). Check the `success` field and any `error` field in the response body.
-
-```json
-{ "success": false, "error": "No active prompt" }
-```
-
----
-
-## Name normalization
-
-Student names are matched using this normalization pipeline:
-
-1. Trim leading/trailing whitespace
-2. Collapse multiple spaces to one
-3. Lowercase everything
-4. Compare
-
-Example: `"  Dela Cruz,  JUAN A.  "` normalizes to `"dela cruz, juan a."` and
-matches roster entry `"Dela Cruz, Juan A."`.

@@ -1,154 +1,111 @@
 # Google Apps Script Backend
 
-The `apps-script/` folder contains the full backend for Kuwago — an API server
-and data store manager built on Google Apps Script, backed by Google Sheets.
+The `apps-script/` directory contains the complete serverless backend and database manager for Kuwago, powered by Google Apps Script and backed by Google Sheets.
 
 ---
 
-## Files
+## Core Script Files
 
-| File | Purpose |
+| File | Primary Responsibilities |
 |---|---|
-| `Code.gs` | `doGet`/`doPost` router + all endpoint handlers |
-| `SheetHelpers.gs` | All Spreadsheet read/write operations |
-| `Engagement.gs` | Attentiveness % and participation rate calculations |
-| `Index.html` | Dashboard HTML (alternative: served by Apps Script instead of `node`) |
-| `JavaScript.html` | Bundled frontend JS (for Apps Script–hosted deployment) |
-| `Styles.html` | Bundled CSS (for Apps Script–hosted deployment) |
-| `appsscript.json` | Project manifest (timezone, runtime, web app config) |
+| [`Code.gs`](../apps-script/Code.gs) | `doGet` and `doPost` routing, endpoint request parsing, active session lifecycle, consolidated per-session export tab generation. |
+| [`SheetHelpers.gs`](../apps-script/SheetHelpers.gs) | `SPREADSHEET_ID` configuration, database CRUD, `setupSheets()` automation, name normalization, and schema definitions. |
+| [`Engagement.gs`](../apps-script/Engagement.gs) | Mathematical models for focus lapses, sustained unfocus alert computation, participation rate calculation, and attendance status inference. |
 
 ---
 
-## Deploying from scratch
+## Deploying From Scratch
 
-### 1. Create the Apps Script project
+### 1. Create the Spreadsheet & Project
 
-1. Go to [script.google.com](https://script.google.com)
-2. Click **New project**
-3. Rename it to **Kuwago Backend**
+1. Create a new Google Spreadsheet at [sheets.google.com](https://sheets.google.com) and name it `Kuwago Database`.
+2. Copy the Spreadsheet ID from the URL:
+   ```
+   https://docs.google.com/spreadsheets/d/SPREADSHEET_ID_HERE/edit
+   ```
+3. In the Spreadsheet menu, open **Extensions → Apps Script**.
+4. Rename the script project to **Kuwago Backend**.
 
-### 2. Add the script files
+### 2. Copy the Script Files
 
-For each `.gs` file in `apps-script/`:
+In the Apps Script editor:
+1. Replace `Code.gs` with the local [`apps-script/Code.gs`](../apps-script/Code.gs).
+2. Click **+ → Script**, name it `SheetHelpers`, and paste [`apps-script/SheetHelpers.gs`](../apps-script/SheetHelpers.gs).
+3. Click **+ → Script**, name it `Engagement`, and paste [`apps-script/Engagement.gs`](../apps-script/Engagement.gs).
 
-1. If the file is `Code.gs`: paste its content into the default script file
-2. For all other `.gs` files: **File → New → Script**, name it to match, paste content
+### 3. Set the Spreadsheet ID
 
-For each `.html` file in `apps-script/`:
-
-1. **File → New → HTML file**, name it to match (without `.html`), paste content
-
-### 3. Set your Spreadsheet ID
-
-In `Code.gs`, find:
+In `SheetHelpers.gs` (around line 36), ensure your Spreadsheet ID is set:
 
 ```javascript
-const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+function getSpreadsheet() {
+  var SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
 ```
 
-Replace with your Google Sheet's ID (from its URL):
-```
-https://docs.google.com/spreadsheets/d/THIS_IS_THE_ID/edit
-```
+### 4. Initialize Database Tables via `setupSheets()`
 
-### 4. Deploy as a Web App
+Rather than manually creating and formatting 7 tabs with exact headers:
+1. In the Apps Script toolbar, locate the function dropdown menu (defaults to `myFunction` or `doGet`).
+2. Select **`setupSheets`**.
+3. Click **▶ Run**.
+4. Google will ask for permission authorization on the first run — click **Review permissions**, select your Google account, click **Advanced → Go to Kuwago Backend (unsafe)**, and grant access.
+5. `setupSheets()` will automatically create all required sheets with their exact headers:
+   - `Courses`
+   - `Students`
+   - `Sessions`
+   - `FocusEvents`
+   - `ChatPrompts`
+   - `ChatResponses`
+   - `Heartbeats`
 
-1. Click **Deploy → New deployment**
-2. Click the gear icon → **Web app**
-3. Set:
-   - **Description**: `v1`
-   - **Execute as**: `Me`
-   - **Who has access**: `Anyone` ← required for the Chrome extension to call it
-4. Click **Deploy**
-5. Copy the **Web App URL** — save this, you'll need it in Step 5
+### 5. Deploy as a Web App
 
-### 5. Update the dashboard's API URL
-
-In `js/api.js`, replace:
-
-```javascript
-const API_BASE = 'https://script.google.com/macros/s/.../exec';
-```
-
-with your deployment URL.
+1. In the top right corner of the Apps Script editor, click **Deploy → New deployment**.
+2. Click the gear icon next to "Select type" and choose **Web app**.
+3. Configure the deployment:
+   - **Description**: `Kuwago v2.0.0 Production`
+   - **Execute as**: `Me (your-email@gmail.com)`
+   - **Who has access**: `Anyone` *(crucial: the Chrome extension and local dashboard require access without Google login prompt)*
+4. Click **Deploy**.
+5. Copy the generated **Web App URL** (looks like `https://script.google.com/macros/s/.../exec`).
 
 ---
 
-## Updating the deployment
+## Updating an Existing Deployment
 
-After editing any `.gs` or `.html` file:
+Whenever you modify any `.gs` file in the Apps Script project:
+1. Click **Deploy → Manage deployments**.
+2. Select your active deployment and click the **Pencil icon (Edit)**.
+3. In the **Version** dropdown, select **New version**.
+4. Click **Deploy**.
 
-1. **Deploy → Manage deployments**
-2. Click the pencil (edit) icon on your deployment
-3. Change **Version** to **New version**
-4. Click **Deploy**
-
-> The URL does not change when you create a new version.
-
----
-
-## Google Sheets schema
-
-See [`docs/architecture.md`](architecture.md#google-sheets-schema) for the
-full table schemas.
-
-**Quick reference — sheet tab names:**
-- `Students` — professor-maintained roster (one name per row)
-- `Sessions` — join/leave events per student
-- `FocusEvents` — focus lost/regained events
-- `ChatPrompts` — prompts issued by the professor
-- `ChatResponses` — chat messages submitted by students
+> ⚠️ **Important:** If you do not publish a **New version**, Apps Script will continue running the previous cached code, even if the editor shows updated code.
 
 ---
 
-## Quota considerations
+## Database Schema Reference
 
-At 30–40 students with a 5-second dashboard poll and a 5–10 second extension
-poll, Apps Script execution stays well within Google's consumer quotas. No
-special configuration is needed.
-
-If you have significantly more students or run very long sessions, monitor
-usage via **Apps Script → Executions**.
+```
+Google Spreadsheet: Kuwago Database
+├── Courses           (SectionID, CourseName, SectionName)
+├── Students          (StudentName, SectionID)
+├── Sessions          (SessionID, StudentName, Matched, JoinTime, LeaveTime)
+├── FocusEvents       (EventID, StudentName, SessionID, Type, Timestamp)
+├── ChatPrompts       (PromptID, ExpectedPhrase, IssuedAt, ExpiresAt, IsActive)
+├── ChatResponses     (ResponseID, StudentName, PromptID, SubmittedText, Matched, Timestamp)
+├── Heartbeats        (StudentName, DetectedName, ExtensionVersion, Timestamp)
+└── Session_YYYY-MM-DD_SectionID  (Automated frozen export generated upon endSession)
+```
 
 ---
 
-## Configuration constants (in `Code.gs`)
+## Automated Session Export: `generateSessionSheet`
 
-| Constant | Default | Description |
-|---|---|---|
-| `SPREADSHEET_ID` | *(must set)* | Your Google Sheet's ID |
-| `DEFAULT_PROMPT_DURATION_S` | `60` | Default prompt duration in seconds |
-
----
-
-## How engagement is calculated
-
-Both metrics are computed **fresh on every `dashboardData` request**. Nothing
-is stored pre-calculated in the sheet.
-
-**Attentiveness %**
-```
-= total focused time ÷ total session duration × 100
-```
-- Total session duration = time from first `join` to latest `leave` (or now, if still joined)
-- Total focused time = session duration minus all focus-lost intervals
-
-**Participation rate**
-```
-= matched chat responses ÷ prompts issued while present × 100
-```
-- A prompt "counts" for a student only if they were joined when it was issued
-- Only responses where `Matched = true` count
-
----
-
-## Running Apps Script locally (emulation)
-
-Apps Script doesn't run outside Google's servers, but you can test the
-dashboard against the live backend using **mock mode**:
-
-```
-http://127.0.0.1:8080?mock=true
-```
-
-This bypasses all API calls entirely and uses realistic generated data.
+When the professor clicks **End Class** in the dashboard, `handleEndSession()` invokes `generateSessionSheet()`:
+- Evaluates attendance status for every student enrolled in the section.
+- Incorporates any manual overrides logged during class.
+- Calculates focus lapses and cumulative away duration.
+- Computes participation success rates on prompts issued while the student was joined.
+- Generates a permanent tab named `Session_<Date>_<SectionID>` (e.g. `Session_2026-09-11_BSIT301-A`) with bold headers and auto-formatted widths.

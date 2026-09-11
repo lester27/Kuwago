@@ -14,7 +14,7 @@
  * IMPORTANT: Replace this with your deployed Apps Script web app URL.
  * The URL looks like: https://script.google.com/macros/s/DEPLOY_ID/exec
  */
-const API_BASE = 'https://script.google.com/macros/s/AKfycbx7QkmCJbaiX4H9lJHKaFzqmRyEnZ-oRpbAhOCypDJluOIm3NGL4gpysUGykB2YzMT7Bg/exec';
+const API_BASE = 'https://script.google.com/macros/s/AKfycbwL9EYd_XOQSqELRbdupUcpZhCxhZ7dt9fASZKkKxYtdEtDkWmW3iIRiK3HNQL7WTBG5g/exec';
 
 const PROMPT_POLL_INTERVAL = 7000;  /* Poll for active prompt every ~7 seconds */
 const FOCUS_DEBOUNCE_MS = 1500;     /* Ignore focus changes shorter than 1.5s */

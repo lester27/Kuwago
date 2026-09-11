@@ -6,11 +6,17 @@
 /* ── Sheet Definitions ─────────────────────────────────── */
 
 var SHEET_SCHEMAS = {
-  Students:      ['StudentName'],
-  Sessions:      ['SessionID', 'StudentName', 'Matched', 'JoinTime', 'LeaveTime'],
-  FocusEvents:   ['EventID', 'StudentName', 'SessionID', 'Type', 'Timestamp'],
-  ChatPrompts:   ['PromptID', 'ExpectedPhrase', 'IssuedAt', 'ExpiresAt', 'IsActive'],
-  ChatResponses: ['ResponseID', 'StudentName', 'PromptID', 'SubmittedText', 'Matched', 'Timestamp']
+  Students:            ['StudentName', 'SectionID'],
+  Sessions:            ['SessionID', 'StudentName', 'Matched', 'JoinTime', 'LeaveTime',
+                        'AttendanceStatus', 'OverrideStatus', 'OverrideReason', 'OverrideAt'],
+  FocusEvents:         ['EventID', 'StudentName', 'SessionID', 'Type', 'Timestamp'],
+  ChatPrompts:         ['PromptID', 'ExpectedPhrase', 'IssuedAt', 'ExpiresAt', 'IsActive'],
+  ChatResponses:       ['ResponseID', 'StudentName', 'PromptID', 'SubmittedText', 'Matched', 'Timestamp'],
+  Courses:             ['SectionID', 'CourseName', 'SectionName'],
+  ActiveSession:       ['SessionID', 'SectionID', 'StartedAt', 'Active'],
+  Heartbeats:          ['StudentName', 'ExtensionVersion', 'LastHeartbeatAt'],
+  NameAliases:         ['DetectedName', 'CanonicalStudentName'],
+  AttendanceAuditLog:  ['StudentName', 'SessionID', 'OldStatus', 'NewStatus', 'Reason', 'ChangedAt']
 };
 
 /* ── Spreadsheet Access ────────────────────────────────── */
@@ -53,6 +59,18 @@ function getOrCreateSheet(name) {
   }
 
   return sheet;
+}
+
+/**
+ * Run this ONCE from the Apps Script editor (Run → setupSheets)
+ * to create all required sheet tabs with the correct headers.
+ * Safe to re-run — won't overwrite existing sheets.
+ */
+function setupSheets() {
+  Object.keys(SHEET_SCHEMAS).forEach(function(name) {
+    getOrCreateSheet(name);
+  });
+  Logger.log('✅ All sheets initialized: ' + Object.keys(SHEET_SCHEMAS).join(', '));
 }
 
 /* ── ID Generation ─────────────────────────────────────── */
@@ -200,4 +218,194 @@ function getRosterNames() {
   }
 
   return names;
+}
+
+/**
+ * Get roster student names for a specific course section.
+ * @param {string} sectionId — e.g. 'BSIT301-A'
+ * @returns {string[]}
+ */
+function getRosterForSection(sectionId) {
+  const sheet = getOrCreateSheet('Students');
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const headers = data[0].map(String);
+  const nameCol = headers.indexOf('StudentName');
+  const sectionCol = headers.indexOf('SectionID');
+  const names = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const secId = String(data[i][sectionCol] || '').trim();
+    if (sectionCol === -1 || secId === sectionId) {
+      const name = data[i][nameCol];
+      if (name) names.push(String(name));
+    }
+  }
+
+  return names;
+}
+
+/**
+ * Upsert a heartbeat row (latest-only table, not append-only).
+ * If a row for this student already exists, overwrite it.
+ * Otherwise, append a new row.
+ * @param {string} studentName
+ * @param {string} extensionVersion
+ */
+function upsertHeartbeat(studentName, extensionVersion) {
+  const sheet = getOrCreateSheet('Heartbeats');
+  const data = sheet.getDataRange().getValues();
+  const now = new Date();
+
+  /* Search for existing row */
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeName(String(data[i][0] || '')) === normalizeName(studentName)) {
+      /* Update in place */
+      sheet.getRange(i + 1, 1, 1, 3).setValues([[studentName, extensionVersion, now]]);
+      return;
+    }
+  }
+
+  /* No existing row — append */
+  sheet.appendRow([studentName, extensionVersion, now]);
+}
+
+/* ── Name Alias Helpers ─────────────────────────────────── */
+
+/**
+ * Check if a detectedName has a stored alias mapping.
+ * @param {string} detectedName — Raw name from extension
+ * @returns {string|null} — Canonical name if alias exists, null otherwise
+ */
+function checkAlias(detectedName) {
+  const sheet = getOrCreateSheet('NameAliases');
+  const data = sheet.getDataRange().getValues();
+  const normalized = normalizeName(detectedName);
+
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeName(String(data[i][0] || '')) === normalized) {
+      return String(data[i][1] || '') || null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Write a new alias mapping to NameAliases.
+ * @param {string} detectedName
+ * @param {string} canonicalName — Pass null to mark as "not a student"
+ */
+function writeAlias(detectedName, canonicalName) {
+  const sheet = getOrCreateSheet('NameAliases');
+  const data = sheet.getDataRange().getValues();
+  const normalized = normalizeName(detectedName);
+
+  /* Overwrite if already exists */
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeName(String(data[i][0] || '')) === normalized) {
+      sheet.getRange(i + 1, 2).setValue(canonicalName || '');
+      return;
+    }
+  }
+  /* Append new */
+  sheet.appendRow([detectedName, canonicalName || '']);
+}
+
+/**
+ * Compute a simple similarity score between two strings.
+ * Uses token overlap + character-level Levenshtein distance.
+ * Returns 0.0 (no match) to 1.0 (perfect match).
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function stringSimilarity(a, b) {
+  a = normalizeName(a);
+  b = normalizeName(b);
+  if (a === b) return 1.0;
+  if (!a || !b) return 0.0;
+
+  /* Token overlap score */
+  const tokensA = new Set(a.split(/\s+/));
+  const tokensB = new Set(b.split(/\s+/));
+  let overlap = 0;
+  for (const t of tokensA) {
+    if (tokensB.has(t)) overlap++;
+    /* partial: check if a token from A is contained in any token of B */
+    else {
+      for (const tb of tokensB) {
+        if (tb.includes(t) || t.includes(tb)) { overlap += 0.5; break; }
+      }
+    }
+  }
+  const tokenScore = overlap / Math.max(tokensA.size, tokensB.size);
+
+  /* Levenshtein distance score */
+  const maxLen = Math.max(a.length, b.length);
+  const dist = levenshtein(a, b);
+  const charScore = 1 - dist / maxLen;
+
+  /* Weighted average — token overlap is more meaningful for names */
+  return tokenScore * 0.6 + charScore * 0.4;
+}
+
+/**
+ * Levenshtein distance between two strings.
+ */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = [];
+  for (let i = 0; i <= m; i++) {
+    dp[i] = [i];
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = i === 0 ? j
+        : j === 0 ? i
+        : a[i-1] === b[j-1]
+          ? dp[i-1][j-1]
+          : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+/**
+ * Suggest top roster matches for a detected (unmatched) name.
+ * @param {string} detectedName
+ * @param {string[]} rosterNames
+ * @param {number} [limit=2]
+ * @param {number} [threshold=0.35]
+ * @returns {Array<{ name: string, score: number }>}
+ */
+function suggestMatches(detectedName, rosterNames, limit, threshold) {
+  limit = limit || 2;
+  threshold = threshold !== undefined ? threshold : 0.35;
+
+  const scored = rosterNames.map(name => ({
+    name,
+    score: stringSimilarity(detectedName, name)
+  }));
+
+  return scored
+    .filter(s => s.score >= threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+/**
+ * Extended matchToRoster that also checks NameAliases before
+ * doing the exact-match lookup.
+ * @param {string} incomingName
+ * @returns {string|null}
+ */
+function matchToRosterWithAlias(incomingName) {
+  /* 1. Check alias table first */
+  const alias = checkAlias(incomingName);
+  if (alias !== null) {
+    /* Empty string alias = "not a student" dismissal */
+    return alias === '' ? null : alias;
+  }
+
+  /* 2. Fall back to exact roster match */
+  return matchToRoster(incomingName);
 }

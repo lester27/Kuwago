@@ -1,6 +1,6 @@
 {
   "name": "kuwago",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Real-time student engagement monitor for Google Meet classrooms. Built for professors who want a live view of who is joined, focused, and participating.",
   "main": "serve-dashboard.js",
   "scripts": {
